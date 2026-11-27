@@ -4,9 +4,24 @@
  * @author ypc
  */
 
-import type { GitDiffResult, GitFileDiff } from '@openspecui/shared';
-import { Columns2, FileCode2, Rows2 } from 'lucide-react';
+import type { GitDiffResult } from '@openspecui/shared';
+import { AlertTriangle, Columns2, FileCode2, Rows2 } from 'lucide-react';
 import { useState } from 'react';
+import { buildSplitRows } from '../lib/diff';
+import { cn } from '../lib/utils';
+import { Alert, AlertTitle } from './ui/alert';
+import { Badge } from './ui/badge';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from './ui/empty';
+import { ScrollArea } from './ui/scroll-area';
+import { Separator } from './ui/separator';
+import { Spinner } from './ui/spinner';
+import { Table, TableBody, TableCell, TableRow } from './ui/table';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
+import {
+  DIFF_STATUS_BADGE_CLASS_NAMES,
+  getSplitDiffCellClassName,
+  getUnifiedDiffLineClassName,
+} from './diff/diffStyles';
 
 interface DiffViewerProps {
   diff: GitDiffResult | null;
@@ -14,79 +29,17 @@ interface DiffViewerProps {
   title?: string;
 }
 
-interface SplitRow {
-  left?: string;
-  right?: string;
-  leftType: 'context' | 'del' | 'empty' | 'hunk';
-  rightType: 'context' | 'add' | 'empty' | 'hunk';
-}
-
-function buildSplitRows(patch: string): SplitRow[] {
-  const lines = patch.split(/\r?\n/);
-  const rows: SplitRow[] = [];
-  let delQueue: string[] = [];
-  let addQueue: string[] = [];
-
-  const flushQueues = () => {
-    const maxLen = Math.max(delQueue.length, addQueue.length);
-    for (let i = 0; i < maxLen; i += 1) {
-      rows.push({
-        left: delQueue[i],
-        right: addQueue[i],
-        leftType: delQueue[i] !== undefined ? 'del' : 'empty',
-        rightType: addQueue[i] !== undefined ? 'add' : 'empty',
-      });
-    }
-    delQueue = [];
-    addQueue = [];
-  };
-
-  for (const line of lines) {
-    if (
-      line.startsWith('diff --git') ||
-      line.startsWith('index ') ||
-      line.startsWith('--- ') ||
-      line.startsWith('+++ ') ||
-      line.startsWith('new file mode') ||
-      line.startsWith('deleted file mode')
-    ) {
-      continue;
-    }
-    if (line.startsWith('@@')) {
-      flushQueues();
-      rows.push({ left: line, right: line, leftType: 'hunk', rightType: 'hunk' });
-      continue;
-    }
-    if (line.startsWith('-')) {
-      delQueue.push(line.slice(1));
-      continue;
-    }
-    if (line.startsWith('+')) {
-      addQueue.push(line.slice(1));
-      continue;
-    }
-    flushQueues();
-    const content = line.startsWith(' ') ? line.slice(1) : line;
-    rows.push({ left: content, right: content, leftType: 'context', rightType: 'context' });
-  }
-  flushQueues();
-  return rows;
-}
-
-const STATUS_BADGE: Record<GitFileDiff['status'], string> = {
-  added: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  modified: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  deleted: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
-  renamed: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
-  binary: 'bg-slate-700/60 text-slate-300 border-slate-600',
-};
-
 export function DiffViewer({ diff, loading = false, title }: DiffViewerProps) {
   const [mode, setMode] = useState<'unified' | 'split'>('unified');
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-400">
+      <div
+        className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground"
+        role="status"
+        aria-live="polite"
+      >
+        <Spinner aria-hidden="true" />
         正在加载代码 Diff...
       </div>
     );
@@ -94,120 +47,158 @@ export function DiffViewer({ diff, loading = false, title }: DiffViewerProps) {
 
   if (!diff) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-800 bg-slate-900/30 p-6 text-center text-sm text-slate-500">
-        点击左侧的未提交工作区或任意 Commit 查看代码变更详情（只读）
-      </div>
+      <Empty className="rounded-lg border border-dashed border-border bg-muted/30">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <FileCode2 aria-hidden="true" />
+          </EmptyMedia>
+          <EmptyDescription>
+            点击左侧的未提交工作区或任意 Commit 查看代码变更详情（只读）
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2">
-        <div className="flex items-center gap-2 text-sm">
-          <FileCode2 className="h-4 w-4 text-sky-400" />
-          <span className="font-medium text-slate-200">{title ?? diff.target}</span>
-          <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
-            {diff.files.length} 个文件
-          </span>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+          <FileCode2 aria-hidden="true" className="size-4 text-info" />
+          <span className="truncate font-medium text-foreground">{title ?? diff.target}</span>
+          <Badge variant="secondary">{diff.files.length} 个文件</Badge>
           {diff.truncated && (
-            <span className="rounded bg-amber-500/20 px-2 py-0.5 text-xs text-amber-300">
+            <Badge
+              variant="outline"
+              className="border-warning/30 bg-diff-modified text-warning"
+            >
               文件数超上限，仅展示部分
-            </span>
+            </Badge>
           )}
         </div>
-        <div className="flex items-center rounded-md border border-slate-700 bg-slate-950 p-0.5 text-xs">
-          <button
-            type="button"
-            onClick={() => setMode('unified')}
-            className={`flex items-center gap-1 rounded px-2 py-1 ${
-              mode === 'unified' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Rows2 className="h-3.5 w-3.5" /> Unified
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('split')}
-            className={`flex items-center gap-1 rounded px-2 py-1 ${
-              mode === 'split' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Columns2 className="h-3.5 w-3.5" /> Split
-          </button>
-        </div>
+        <ToggleGroup
+          type="single"
+          value={mode}
+          onValueChange={(value) => {
+            if (value === 'unified' || value === 'split') {
+              setMode(value);
+            }
+          }}
+          variant="outline"
+          size="sm"
+          spacing={0}
+          aria-label="Diff 视图模式"
+          className="bg-background"
+        >
+          <ToggleGroupItem value="unified" aria-label="Unified 视图">
+            <Rows2 data-icon="inline-start" aria-hidden="true" />
+            Unified
+          </ToggleGroupItem>
+          <ToggleGroupItem value="split" aria-label="Split 视图">
+            <Columns2 data-icon="inline-start" aria-hidden="true" />
+            Split
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
       {diff.files.length === 0 ? (
-        <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-6 text-center text-sm text-slate-500">
-          当前目标没有可展示的文本差异
-        </div>
+        <Empty className="rounded-lg border border-dashed border-border bg-muted/30">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <FileCode2 aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyDescription>当前目标没有可展示的文本差异</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         diff.files.map((file) => (
-          <div key={file.path} className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
-            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/70 px-3 py-1.5 text-xs">
-              <span className="font-mono text-slate-200">{file.path}</span>
-              <div className="flex items-center gap-2">
-                {file.truncated && <span className="text-amber-400">内容已截断</span>}
-                <span className={`rounded border px-1.5 py-0.5 uppercase ${STATUS_BADGE[file.status]}`}>
+          <div
+            key={file.path}
+            className="overflow-hidden rounded-lg border border-border bg-card"
+          >
+            <div className="flex items-center justify-between gap-3 bg-muted/40 px-3 py-1.5 text-xs">
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-foreground-secondary"
+                title={file.path}
+              >
+                {file.path}
+              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn('uppercase', DIFF_STATUS_BADGE_CLASS_NAMES[file.status])}
+                >
                   {file.status}
-                </span>
+                </Badge>
               </div>
             </div>
+            <Separator />
+
+            {file.truncated && (
+              <Alert className="m-3 w-auto border-warning/30 bg-diff-modified text-warning">
+                <AlertTriangle aria-hidden="true" />
+                <AlertTitle>内容已截断</AlertTitle>
+              </Alert>
+            )}
 
             {mode === 'unified' || file.status === 'binary' ? (
-              <pre className="max-h-96 overflow-auto p-3 text-xs leading-5">
-                {file.patch.split(/\r?\n/).map((line, idx) => {
-                  const cls = line.startsWith('+') && !line.startsWith('+++')
-                    ? 'bg-emerald-950/60 text-emerald-300'
-                    : line.startsWith('-') && !line.startsWith('---')
-                      ? 'bg-rose-950/60 text-rose-300'
-                      : line.startsWith('@@')
-                        ? 'bg-sky-950/60 text-sky-300'
-                        : 'text-slate-300';
-                  return (
-                    <div key={idx} className={`px-1 ${cls}`}>
-                      {line || ' '}
-                    </div>
-                  );
-                })}
-              </pre>
+              <ScrollArea
+                type="scroll"
+                role="region"
+                className="max-h-96 w-full"
+                aria-label={`${file.path} 统一差异`}
+              >
+                <div className="overflow-x-auto">
+                  <pre className="w-max min-w-full p-3 text-xs leading-5">
+                    {file.patch.split(/\r?\n/).map((line, index) => (
+                      <span
+                        key={index}
+                        className={cn('block px-1', getUnifiedDiffLineClassName(line))}
+                      >
+                        {line || ' '}
+                      </span>
+                    ))}
+                  </pre>
+                </div>
+              </ScrollArea>
             ) : (
-              <div className="max-h-96 overflow-auto text-xs leading-5">
-                <table className="w-full table-fixed border-collapse font-mono">
-                  <tbody>
-                    {buildSplitRows(file.patch).map((row, idx) => (
-                      <tr key={idx} className="border-b border-slate-900/60">
-                        <td
-                          className={`w-1/2 whitespace-pre-wrap break-all px-2 py-0.5 align-top ${
-                            row.leftType === 'del'
-                              ? 'bg-rose-950/60 text-rose-300'
-                              : row.leftType === 'hunk'
-                                ? 'bg-sky-950/50 text-sky-300'
-                                : row.leftType === 'empty'
-                                  ? 'bg-slate-900/30'
-                                  : 'text-slate-300'
-                          }`}
+              <ScrollArea
+                type="scroll"
+                role="region"
+                className="max-h-96 w-full"
+                aria-label={`${file.path} 左右差异`}
+              >
+                <Table
+                  className="w-full table-fixed border-collapse font-mono text-xs"
+                  aria-label={`${file.path} 左右差异`}
+                >
+                  <TableBody>
+                    {buildSplitRows(file.patch).map((row, index) => (
+                      <TableRow
+                        key={index}
+                        className="border-b border-border/60 hover:bg-transparent"
+                      >
+                        <TableCell
+                          className={cn(
+                            'w-1/2 whitespace-pre-wrap break-all px-2 py-0.5 align-top',
+                            getSplitDiffCellClassName(row.leftType),
+                          )}
                         >
                           {row.left ?? ''}
-                        </td>
-                        <td
-                          className={`w-1/2 whitespace-pre-wrap break-all border-l border-slate-800 px-2 py-0.5 align-top ${
-                            row.rightType === 'add'
-                              ? 'bg-emerald-950/60 text-emerald-300'
-                              : row.rightType === 'hunk'
-                                ? 'bg-sky-950/50 text-sky-300'
-                                : row.rightType === 'empty'
-                                  ? 'bg-slate-900/30'
-                                  : 'text-slate-300'
-                          }`}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            'w-1/2 whitespace-pre-wrap break-all border-l border-border px-2 py-0.5 align-top',
+                            getSplitDiffCellClassName(row.rightType),
+                          )}
                         >
                           {row.right ?? ''}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
+              </ScrollArea>
             )}
           </div>
         ))

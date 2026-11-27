@@ -1,7 +1,6 @@
 /**
  * @file Change 详情工作台弹窗/面板组件
  * @description 展示 Proposal、Specs（含 Delta vs Main Diff）、Design、Tasks（含依赖状态与回写）及 Git 关联 Diff。
- * @author ypc
  */
 
 import type {
@@ -27,8 +26,19 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, type RepoChangeGitMatchResponse } from '../api';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import { DELTA_STATUS_META } from '../lib/status';
 import { formatArchiveTime } from '../utils/formatArchiveTime';
+import { InlineAlert } from './common/InlineAlert';
+import { StatusBadge } from './common/StatusBadge';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader } from './ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { ScrollArea } from './ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Separator } from './ui/separator';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 import { DiffViewer } from './DiffViewer';
 import { headingTextToSlug, MarkdownViewer } from './MarkdownViewer';
 
@@ -113,12 +123,7 @@ interface ChangeDetailViewProps {
   onRefresh: () => void;
 }
 
-const DELTA_BADGE: Record<string, string> = {
-  ADDED: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  MODIFIED: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  REMOVED: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
-  RENAMED: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
-};
+const BRANCH_AUTO_SENTINEL = '__auto__';
 
 export function ChangeDetailView({
   workspaceId,
@@ -153,8 +158,6 @@ export function ChangeDetailView({
   const [taskNotice, setTaskNotice] = useState<string | null>(null);
   const [togglingKey, setTogglingKey] = useState<string | null>(null);
 
-  useEscapeKey(onClose);
-
   useEffect(() => {
     if (initialRepoId && group.entries.some((e) => e.repoId === initialRepoId)) {
       setActiveRepoId(initialRepoId);
@@ -184,6 +187,7 @@ export function ChangeDetailView({
       .catch(() => setGitMatches([]));
     setShowUnrelatedRepos(false);
     setSelectedDiff(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, group.key, group.title, group.entries, repoLinks]);
 
   const currentEntry: RepoChangeEntry | undefined =
@@ -216,6 +220,8 @@ export function ChangeDetailView({
         const nodes = scopeRoot.querySelectorAll<HTMLElement>('[id]');
         for (const node of nodes) {
           if (node.id === rawAnchor || node.id === slugAnchor) {
+            node.setAttribute('tabindex', '-1');
+            node.focus({ preventScroll: true });
             node.scrollIntoView({ behavior: 'smooth', block: 'start' });
             setPendingScrollTarget(null);
             return;
@@ -294,7 +300,7 @@ export function ChangeDetailView({
     await api.setBranchPin(workspaceId, {
       changeKey: group.key,
       repoId,
-      branch: branch || undefined,
+      branch: branch === BRANCH_AUTO_SENTINEL ? undefined : branch || undefined,
     });
     const names = Array.from(new Set([group.title, ...group.entries.map((e) => e.changeName)]));
     const res = await api.matchChangeGit(workspaceId, group.key, names, resolvedOwnerRepoIds);
@@ -320,15 +326,15 @@ export function ChangeDetailView({
     if (!state || state.status === 'done') return null;
     if (state.status === 'next') {
       return (
-        <div className="rounded-xl border border-sky-500/30 bg-sky-950/20 p-6 text-xs text-sky-200">
+        <InlineAlert variant="info">
           尚未撰写 `{id}`，且当前无前置阻塞：这是下一步待撰写的产物（可执行 `/opsx-propose` 或 `/opsx-continue` 补全）。
-        </div>
+        </InlineAlert>
       );
     }
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-xs text-slate-400">
+      <InlineAlert>
         尚未撰写 `{id}`，当前等待前置产物完成：{state.blockedBy?.join(', ') || 'prerequisite'}。
-      </div>
+      </InlineAlert>
     );
   };
 
@@ -339,29 +345,18 @@ export function ChangeDetailView({
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-slate-400">
-              共 {entry.deltaDiffs.length} 个能力规范文件
-            </span>
-            <div className="flex items-center rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setSpecsViewMode('markdown')}
-                className={`rounded-md px-2.5 py-1 ${
-                  specsViewMode === 'markdown' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                规范文档 (Markdown)
-              </button>
-              <button
-                type="button"
-                onClick={() => setSpecsViewMode('diff')}
-                className={`rounded-md px-2.5 py-1 ${
-                  specsViewMode === 'diff' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Delta vs Main 对比
-              </button>
-            </div>
+            <span className="text-xs text-muted-foreground">共 {entry.deltaDiffs.length} 个能力规范文件</span>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              value={specsViewMode}
+              onValueChange={(value) => value && setSpecsViewMode(value as 'markdown' | 'diff')}
+              aria-label="Specs 视图模式"
+            >
+              <ToggleGroupItem value="markdown">规范文档 (Markdown)</ToggleGroupItem>
+              <ToggleGroupItem value="diff">Delta vs Main 对比</ToggleGroupItem>
+            </ToggleGroup>
           </div>
 
           {entry.deltaDiffs.map((delta) =>
@@ -374,72 +369,67 @@ export function ChangeDetailView({
                 />
               </div>
             ) : (
-              <div
-                key={delta.deltaFilePath}
-                data-spec-path={delta.capabilityPath.toLowerCase()}
-                className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <Card key={delta.deltaFilePath} data-spec-path={delta.capabilityPath.toLowerCase()}>
+                <CardHeader className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
                   <div className="flex items-center gap-2">
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-sky-300">
+                    <Badge variant="secondary" className="text-info">
                       {entry.repoRole}
-                    </span>
-                    <span className="font-mono text-xs font-semibold text-slate-100">{delta.capabilityPath}</span>
+                    </Badge>
+                    <span className="font-mono text-xs font-semibold">{delta.capabilityPath}</span>
                   </div>
                   {delta.hasMainSpec ? (
-                    <span className="rounded bg-sky-500/15 px-2 py-0.5 text-[11px] text-sky-300">
+                    <Badge variant="secondary" className="text-info">
                       已关联主规范对照
-                    </span>
+                    </Badge>
                   ) : (
-                    <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-300">
+                    <Badge variant="secondary" className="text-success">
                       全新能力规范（主 specs 尚不存在）
-                    </span>
+                    </Badge>
                   )}
-                </div>
-
-                {delta.items.length === 0 ? (
-                  <MarkdownViewer
-                    content={delta.deltaSpecRaw}
-                    title={delta.deltaFilePath}
-                    onNavigateLink={handleNavigateMarkdownLink}
-                  />
-                ) : (
-                  <div className="space-y-3">
-                    {delta.items.map((item, idx) => (
-                      <div key={idx} className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/60">
-                        <div className="flex items-center justify-between border-b border-slate-800 px-3 py-1.5 text-xs">
-                          <span className="font-semibold text-slate-200">
-                            {item.fromName ? `${item.fromName} -> ${item.name}` : item.name}
-                          </span>
-                          <span className={`rounded border px-1.5 py-0.5 text-[10px] ${DELTA_BADGE[item.operation]}`}>
-                            {item.operation}
-                          </span>
-                        </div>
-                        {item.operation === 'MODIFIED' && item.beforeMarkdown ? (
-                          <div className="grid divide-y divide-slate-800 md:grid-cols-2 md:divide-x md:divide-y-0">
-                            <div className="bg-rose-950/20 p-3">
-                              <div className="mb-1 text-[10px] font-medium text-rose-300">主规范原条文 (Main Spec)</div>
-                              <pre className="whitespace-pre-wrap text-xs leading-5 text-slate-300">
-                                {item.beforeMarkdown}
-                              </pre>
-                            </div>
-                            <div className="bg-emerald-950/20 p-3">
-                              <div className="mb-1 text-[10px] font-medium text-emerald-300">本次 Delta 变更后</div>
-                              <pre className="whitespace-pre-wrap text-xs leading-5 text-slate-200">
-                                {item.afterMarkdown}
-                              </pre>
-                            </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  {delta.items.length === 0 ? (
+                    <MarkdownViewer
+                      content={delta.deltaSpecRaw}
+                      title={delta.deltaFilePath}
+                      onNavigateLink={handleNavigateMarkdownLink}
+                    />
+                  ) : (
+                    <div className="space-y-3">
+                      {delta.items.map((item, idx) => (
+                        <div key={idx} className="overflow-hidden rounded-lg border border-border bg-card">
+                          <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-xs">
+                            <span className="font-semibold">
+                              {item.fromName ? `${item.fromName} -> ${item.name}` : item.name}
+                            </span>
+                            <StatusBadge meta={DELTA_STATUS_META[item.operation]}>{item.operation}</StatusBadge>
                           </div>
-                        ) : (
-                          <pre className="whitespace-pre-wrap p-3 text-xs leading-5 text-slate-200">
-                            {item.afterMarkdown}
-                          </pre>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                          {item.operation === 'MODIFIED' && item.beforeMarkdown ? (
+                            <div className="grid divide-y divide-border md:grid-cols-2 md:divide-x md:divide-y-0">
+                              <div className="bg-diff-removed p-3">
+                                <div className="mb-1 text-10 font-medium text-destructive">主规范原条文 (Main Spec)</div>
+                                <pre className="whitespace-pre-wrap text-xs leading-5 text-foreground-muted">
+                                  {item.beforeMarkdown}
+                                </pre>
+                              </div>
+                              <div className="bg-diff-added p-3">
+                                <div className="mb-1 text-10 font-medium text-success">本次 Delta 变更后</div>
+                                <pre className="whitespace-pre-wrap text-xs leading-5 text-foreground-secondary">
+                                  {item.afterMarkdown}
+                                </pre>
+                              </div>
+                            </div>
+                          ) : (
+                            <pre className="whitespace-pre-wrap p-3 text-xs leading-5 text-foreground-secondary">
+                              {item.afterMarkdown}
+                            </pre>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             ),
           )}
         </>
@@ -468,21 +458,21 @@ export function ChangeDetailView({
           onNavigateLink={handleNavigateMarkdownLink}
           headerExtra={
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-slate-500">
+              <span className="text-muted-foreground">
                 ({tasks.completedCount}/{tasks.totalCount})
               </span>
               {readOnlyMode ? (
-                <span className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300">
-                  <Lock className="h-3 w-3" /> 局域网只读模式
-                </span>
+                <Badge variant="secondary" className="text-warning">
+                  <Lock aria-hidden="true" className="size-3" /> 局域网只读模式
+                </Badge>
               ) : entry.sourceType === 'remote' ? (
-                <span className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300">
-                  <Lock className="h-3 w-3" /> 远程仓库为只读缓存（禁用勾选回写）
-                </span>
+                <Badge variant="secondary" className="text-warning">
+                  <Lock aria-hidden="true" className="size-3" /> 远程仓库为只读缓存（禁用勾选回写）
+                </Badge>
               ) : entry.archived ? (
-                <span className="flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
-                  <Lock className="h-3 w-3" /> 已归档只读
-                </span>
+                <Badge variant="secondary">
+                  <Lock aria-hidden="true" className="size-3" /> 已归档只读
+                </Badge>
               ) : null}
             </div>
           }
@@ -499,329 +489,309 @@ export function ChangeDetailView({
   };
 
   const renderArtifactTabIcon = (id: 'proposal' | 'specs' | 'design' | 'tasks') => {
-    const st = currentEntry?.artifactStates.find((a) => a.id === id);
-    if (!st) return null;
-    if (st.status === 'done') return <Check className="h-3 w-3 text-emerald-400" />;
-    if (st.status === 'next') return <ArrowRight className="h-3 w-3 text-sky-400" />;
-    return <Lock className="h-3 w-3 text-slate-500" />;
+    const status = currentEntry?.artifactStates.find((a) => a.id === id);
+    if (!status) return null;
+    if (status.status === 'done') return <Check aria-hidden="true" className="size-3 text-success" />;
+    if (status.status === 'next') return <ArrowRight aria-hidden="true" className="size-3 text-info" />;
+    return <Lock aria-hidden="true" className="size-3 text-muted-foreground" />;
   };
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs ${
-        isFullscreen ? 'p-0' : 'p-2 md:p-4'
-      }`}
-    >
-      <div
-        className={`flex flex-col overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl ${
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className={`flex flex-col overflow-hidden border-border-strong bg-card p-0 shadow-2xl ${
           isFullscreen
-            ? 'h-screen w-screen max-w-none rounded-none border-0'
-            : 'h-[92vh] w-[96vw] max-w-[1600px] rounded-2xl'
+            ? 'h-screen w-screen max-w-none rounded-none border-0 sm:max-w-none'
+            : 'h-[92vh] w-[96vw] max-w-[1600px] rounded-2xl sm:max-w-[1600px]'
         }`}
       >
-        {/* 头部 */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-3.5">
+        <DialogHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3.5">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <DialogTitle className="mt-0.5 truncate text-lg font-semibold">{group.title}</DialogTitle>
+            <DialogDescription className="flex flex-wrap items-center gap-2 text-xs">
               {currentEntry && <span>{currentEntry.repoName}</span>}
-              <span>·</span>
+              <span aria-hidden="true">·</span>
               <span>{group.stage}</span>
-              <span>·</span>
+              <span aria-hidden="true">·</span>
               <span>
                 {group.totalProgress.completed} / {group.totalProgress.total} tasks
               </span>
               {currentEntry?.archived && (
-                <>
-                  <span>·</span>
-                  <span className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300">
-                    <Archive className="h-3 w-3" />
-                    归档于 {formatArchiveTime(currentEntry.archivedAt, currentEntry.archivedDate)}
-                  </span>
-                </>
+                <Badge variant="secondary" className="text-success">
+                  <Archive aria-hidden="true" className="size-3" />
+                  归档于 {formatArchiveTime(currentEntry.archivedAt, currentEntry.archivedDate)}
+                </Badge>
               )}
-            </div>
-            <h2 className="mt-0.5 truncate text-lg font-semibold text-slate-100">{group.title}</h2>
+            </DialogDescription>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {group.entries.length >= 2 && (activeTab === 'specs' || activeTab === 'tasks') && (
-              <button
-                type="button"
+              <Button
+                variant={compareSideBySide ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={compareSideBySide}
                 onClick={() => setCompareSideBySide((v) => !v)}
-                className={`flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs ${
-                  compareSideBySide
-                    ? 'border-sky-500 bg-sky-600/20 text-sky-200'
-                    : 'border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800'
-                }`}
               >
-                <Columns2 className="h-3.5 w-3.5" /> 双仓并排对照
-              </button>
+                <Columns2 data-icon="inline-start" aria-hidden="true" /> 双仓并排对照
+              </Button>
             )}
 
             {!compareSideBySide &&
               group.entries.length > 1 &&
               group.entries.map((entry) => (
-                <button
+                <Button
                   key={`${entry.repoId}:${entry.changeName}`}
-                  type="button"
+                  size="sm"
+                  variant={currentEntry?.repoId === entry.repoId ? 'default' : 'secondary'}
                   onClick={() => setActiveRepoId(entry.repoId)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-medium ${
-                    currentEntry?.repoId === entry.repoId
-                      ? 'bg-sky-600 text-white'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
                 >
                   [{entry.repoRole}] {entry.repoName}
-                </button>
+                </Button>
               ))}
 
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label={isFullscreen ? '退出全屏' : '全屏查看'}
               onClick={() => setIsFullscreen((v) => !v)}
-              className="rounded-lg border border-slate-700 p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-              title={isFullscreen ? '退出全屏' : '全屏查看'}
             >
-              {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-700 p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-              title="关闭"
-            >
-              <X className="h-4 w-4" />
-            </button>
+              {isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+            </Button>
+            <Button variant="outline" size="icon-sm" aria-label="关闭" onClick={onClose}>
+              <X aria-hidden="true" />
+            </Button>
           </div>
-        </div>
+        </DialogHeader>
 
-        {/* Artifact & Git Tab 栏 */}
-        <div className="flex flex-wrap gap-1 border-b border-slate-800 px-5 py-2 text-xs">
-          {(
-            [
-              { id: 'proposal', label: 'Proposal' },
-              { id: 'specs', label: 'Specs (Delta Diff)' },
-              { id: 'design', label: 'Design' },
-              { id: 'tasks', label: 'Tasks' },
-              { id: 'git', label: 'Git 分支 & Diff' },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium ${
-                activeTab === tab.id ? 'bg-slate-800 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {tab.id !== 'git' && renderArtifactTabIcon(tab.id)}
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as DetailTabId)}>
+          <TabsList variant="line" className="px-5">
+            <TabsTrigger value="proposal">
+              {renderArtifactTabIcon('proposal')}
+              Proposal
+            </TabsTrigger>
+            <TabsTrigger value="specs">
+              {renderArtifactTabIcon('specs')}
+              Specs (Delta Diff)
+            </TabsTrigger>
+            <TabsTrigger value="design">
+              {renderArtifactTabIcon('design')}
+              Design
+            </TabsTrigger>
+            <TabsTrigger value="tasks">
+              {renderArtifactTabIcon('tasks')}
+              Tasks
+            </TabsTrigger>
+            <TabsTrigger value="git">Git 分支 & Diff</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-        {/* 滚动内容区 */}
-        <div ref={contentScrollRef} className="flex-1 space-y-4 overflow-y-auto p-5">
-          {linkNotice && (
-            <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-950/30 px-3 py-2 text-xs text-sky-200">
-              <span className="min-w-0 flex-1 truncate">{linkNotice}</span>
-              <button
-                type="button"
-                onClick={() => setLinkNotice(null)}
-                className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                title="关闭提示"
+        <Separator />
+
+        <ScrollArea className="flex-1">
+          <div ref={contentScrollRef} className="space-y-4 overflow-y-auto p-5">
+            {linkNotice && (
+              <InlineAlert
+                variant="info"
+                title="文档内链接提示"
+                className="items-center justify-between"
               >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
+                <span className="min-w-0 flex-1">{linkNotice}</span>
+                <Button variant="ghost" size="icon-sm" aria-label="关闭提示" onClick={() => setLinkNotice(null)}>
+                  <X aria-hidden="true" />
+                </Button>
+              </InlineAlert>
+            )}
 
-          {taskNotice && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span>{taskNotice}</span>
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="ml-auto flex items-center gap-1 rounded bg-amber-500/20 px-2 py-0.5 text-amber-100 hover:bg-amber-500/30"
-              >
-                <RefreshCw className="h-3 w-3" /> 刷新
-              </button>
-            </div>
-          )}
+            {taskNotice && (
+              <InlineAlert variant="warning" className="items-center">
+                <AlertTriangle aria-hidden="true" className="size-4 shrink-0" />
+                <span>{taskNotice}</span>
+                <Button variant="outline" size="sm" className="ml-auto" onClick={onRefresh}>
+                  <RefreshCw data-icon="inline-start" aria-hidden="true" /> 刷新
+                </Button>
+              </InlineAlert>
+            )}
 
-          {activeTab === 'specs' &&
-            (compareSideBySide && group.entries.length >= 2 ? (
-              <div className="grid gap-4 lg:grid-cols-2">
-                {group.entries.map((entry) => (
-                  <div key={`${entry.repoId}:${entry.changeName}`}>{renderEntrySpecs(entry)}</div>
-                ))}
-              </div>
-            ) : (
-              currentEntry && renderEntrySpecs(currentEntry)
-            ))}
+            {activeTab === 'specs' &&
+              (compareSideBySide && group.entries.length >= 2 ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {group.entries.map((entry) => (
+                    <div key={`${entry.repoId}:${entry.changeName}`}>{renderEntrySpecs(entry)}</div>
+                  ))}
+                </div>
+              ) : (
+                currentEntry && renderEntrySpecs(currentEntry)
+              ))}
 
-          {activeTab === 'tasks' &&
-            (compareSideBySide && group.entries.length >= 2 ? (
-              <div className="grid gap-4 lg:grid-cols-2">
-                {group.entries.map((entry) => (
-                  <div key={`${entry.repoId}:${entry.changeName}`}>{renderEntryTasks(entry)}</div>
-                ))}
-              </div>
-            ) : (
-              currentEntry && renderEntryTasks(currentEntry)
-            ))}
+            {activeTab === 'tasks' &&
+              (compareSideBySide && group.entries.length >= 2 ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {group.entries.map((entry) => (
+                    <div key={`${entry.repoId}:${entry.changeName}`}>{renderEntryTasks(entry)}</div>
+                  ))}
+                </div>
+              ) : (
+                currentEntry && renderEntryTasks(currentEntry)
+              ))}
 
-          {activeTab === 'proposal' &&
-            currentEntry &&
-            (currentEntry.proposalContent ? (
-              <MarkdownViewer
-                content={currentEntry.proposalContent}
-                title="proposal.md"
-                onNavigateLink={handleNavigateMarkdownLink}
-              />
-            ) : (
-              renderMissingArtifactNotice(currentEntry, 'proposal')
-            ))}
+            {activeTab === 'proposal' &&
+              currentEntry &&
+              (currentEntry.proposalContent ? (
+                <MarkdownViewer
+                  content={currentEntry.proposalContent}
+                  title="proposal.md"
+                  onNavigateLink={handleNavigateMarkdownLink}
+                />
+              ) : (
+                renderMissingArtifactNotice(currentEntry, 'proposal')
+              ))}
 
-          {activeTab === 'design' &&
-            currentEntry &&
-            (currentEntry.designContent ? (
-              <MarkdownViewer
-                content={currentEntry.designContent}
-                title="design.md"
-                onNavigateLink={handleNavigateMarkdownLink}
-              />
-            ) : (
-              renderMissingArtifactNotice(currentEntry, 'design')
-            ))}
+            {activeTab === 'design' &&
+              currentEntry &&
+              (currentEntry.designContent ? (
+                <MarkdownViewer
+                  content={currentEntry.designContent}
+                  title="design.md"
+                  onNavigateLink={handleNavigateMarkdownLink}
+                />
+              ) : (
+                renderMissingArtifactNotice(currentEntry, 'design')
+              ))}
 
-          {activeTab === 'git' && (() => {
-            const relatedMatches = gitMatches.filter((m) => m.isRelated);
-            const unrelatedMatches = gitMatches.filter((m) => !m.isRelated);
-            const visibleMatches = showUnrelatedRepos ? gitMatches : relatedMatches;
+            {activeTab === 'git' &&
+              (() => {
+                const relatedMatches = gitMatches.filter((m) => m.isRelated);
+                const unrelatedMatches = gitMatches.filter((m) => !m.isRelated);
+                const visibleMatches = showUnrelatedRepos ? gitMatches : relatedMatches;
 
-            return (
-            <div className="grid gap-4 lg:grid-cols-5">
-              <div className="space-y-3 lg:col-span-2">
-                {visibleMatches.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-800 p-4 text-center text-xs text-slate-500">
-                    当前 Change 所属仓库未命中 Git 关联记录
-                  </div>
-                ) : (
-                  visibleMatches.map((match) => (
-                  <div
-                    key={match.repoId}
-                    className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-sky-300">
-                          {match.status.repoRole}
-                        </span>
-                        <span className="font-semibold text-slate-200">{match.status.repoName}</span>
-                        {!match.isRelated && (
-                          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
-                            其他仓
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-slate-400">匹配：{match.matchReason}</span>
+                return (
+                  <div className="grid gap-4 lg:grid-cols-5">
+                    <div className="space-y-3 lg:col-span-2">
+                      {visibleMatches.length === 0 ? (
+                        <InlineAlert>当前 Change 所属仓库未命中 Git 关联记录</InlineAlert>
+                      ) : (
+                        visibleMatches.map((match) => (
+                          <Card key={match.repoId}>
+                            <CardContent className="space-y-2 p-3 text-xs">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <Badge variant="secondary" className="text-info">
+                                    {match.status.repoRole}
+                                  </Badge>
+                                  <span className="font-semibold">{match.status.repoName}</span>
+                                  {!match.isRelated && <Badge variant="secondary">其他仓</Badge>}
+                                </div>
+                                <span className="text-11 text-muted-foreground">匹配：{match.matchReason}</span>
+                              </div>
+
+                              {!match.status.isGitRepo ? (
+                                <div className="text-muted-foreground">{match.status.error || '非 Git 仓库'}</div>
+                              ) : (
+                                <>
+                                  <div className="flex items-center gap-2">
+                                    <GitBranch aria-hidden="true" className="size-3.5 text-info" />
+                                    <Select
+                                      value={match.matchedBranch ?? BRANCH_AUTO_SENTINEL}
+                                      onValueChange={(value) => void handlePinBranch(match.repoId, value)}
+                                      disabled={readOnlyMode}
+                                    >
+                                      <SelectTrigger className="flex-1" aria-label="固定关联分支">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value={BRANCH_AUTO_SENTINEL}>自动匹配</SelectItem>
+                                        {match.status.branches.map((branch) => (
+                                          <SelectItem key={branch} value={branch}>
+                                            {branch}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    {match.isPinned && (
+                                      <span className="flex items-center gap-0.5 text-10 text-warning">
+                                        <Pin aria-hidden="true" className="size-3" /> 已固定
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {match.status.dirtyCount > 0 && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="w-full justify-between border-warning/30 bg-diff-modified text-warning hover:bg-diff-modified hover:text-warning"
+                                      onClick={() =>
+                                        void handleOpenDiff(
+                                          match.repoId,
+                                          'working-tree',
+                                          `[${match.status.repoRole}] 未提交工作区 (${match.status.dirtyCount})`,
+                                        )
+                                      }
+                                    >
+                                      <span>查看未提交工作区改动</span>
+                                      <span>{match.status.dirtyCount} 文件</span>
+                                    </Button>
+                                  )}
+
+                                  <ScrollArea className="max-h-48">
+                                    <div className="space-y-1">
+                                      {match.commits.map((commit) => (
+                                        <Button
+                                          key={commit.sha}
+                                          variant="ghost"
+                                          className="h-auto w-full items-start justify-start gap-2 px-2 py-1.5 text-left"
+                                          onClick={() =>
+                                            void handleOpenDiff(
+                                              match.repoId,
+                                              commit.sha,
+                                              `[${match.status.repoRole}] ${commit.shortSha} ${commit.subject}`,
+                                            )
+                                          }
+                                        >
+                                          <GitCommitHorizontal aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-info" />
+                                          <span className="min-w-0 flex-1">
+                                            <span className="block truncate">{commit.subject}</span>
+                                            <span className="block text-10 text-muted-foreground">
+                                              {commit.shortSha} · {commit.author} · {commit.filesChanged} 文件
+                                            </span>
+                                          </span>
+                                        </Button>
+                                      ))}
+                                    </div>
+                                  </ScrollArea>
+                                </>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))
+                      )}
+
+                      {unrelatedMatches.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full border-dashed"
+                          aria-expanded={showUnrelatedRepos}
+                          onClick={() => setShowUnrelatedRepos((v) => !v)}
+                        >
+                          {showUnrelatedRepos
+                            ? `收起工作区其余未关联仓库 (${unrelatedMatches.length})`
+                            : `显示工作区其余未关联仓库 (${unrelatedMatches.length}，仅用于手动关联)`}
+                        </Button>
+                      )}
                     </div>
 
-                    {!match.status.isGitRepo ? (
-                      <div className="text-slate-500">{match.status.error || '非 Git 仓库'}</div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <GitBranch className="h-3.5 w-3.5 text-sky-400" />
-                          <select
-                            disabled={readOnlyMode}
-                            value={match.matchedBranch ?? ''}
-                            onChange={(e) => void handlePinBranch(match.repoId, e.target.value)}
-                            className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 disabled:opacity-60"
-                          >
-                            <option value="">自动匹配</option>
-                            {match.status.branches.map((b) => (
-                              <option key={b} value={b}>
-                                {b}
-                              </option>
-                            ))}
-                          </select>
-                          {match.isPinned && (
-                            <span className="flex items-center gap-0.5 text-[10px] text-amber-300">
-                              <Pin className="h-3 w-3" /> 已固定
-                            </span>
-                          )}
-                        </div>
-
-                        {match.status.dirtyCount > 0 && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void handleOpenDiff(
-                                match.repoId,
-                                'working-tree',
-                                `[${match.status.repoRole}] 未提交工作区 (${match.status.dirtyCount})`,
-                              )
-                            }
-                            className="flex w-full items-center justify-between rounded-lg border border-amber-500/30 bg-amber-950/20 px-2.5 py-1.5 text-left text-amber-200 hover:bg-amber-950/40"
-                          >
-                            <span>查看未提交工作区改动</span>
-                            <span>{match.status.dirtyCount} 文件</span>
-                          </button>
-                        )}
-
-                        <div className="max-h-48 space-y-1 overflow-y-auto">
-                          {match.commits.map((c) => (
-                            <button
-                              key={c.sha}
-                              type="button"
-                              onClick={() =>
-                                void handleOpenDiff(
-                                  match.repoId,
-                                  c.sha,
-                                  `[${match.status.repoRole}] ${c.shortSha} ${c.subject}`,
-                                )
-                              }
-                              className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-slate-900"
-                            >
-                              <GitCommitHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-400" />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-slate-200">{c.subject}</div>
-                                <div className="text-[10px] text-slate-500">
-                                  {c.shortSha} · {c.author} · {c.filesChanged} 文件
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
+                    <div className="lg:col-span-3">
+                      <DiffViewer diff={selectedDiff} loading={loadingDiff} title={diffTitle} />
+                    </div>
                   </div>
-                  ))
-                )}
-
-                {unrelatedMatches.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowUnrelatedRepos((v) => !v)}
-                    className="w-full rounded-lg border border-dashed border-slate-800 px-3 py-2 text-xs text-slate-400 hover:border-slate-700 hover:text-slate-200"
-                  >
-                    {showUnrelatedRepos
-                      ? `收起工作区其余未关联仓库 (${unrelatedMatches.length})`
-                      : `显示工作区其余未关联仓库 (${unrelatedMatches.length}，仅用于手动关联)`}
-                  </button>
-                )}
-              </div>
-
-              <div className="lg:col-span-3">
-                <DiffViewer diff={selectedDiff} loading={loadingDiff} title={diffTitle} />
-              </div>
-            </div>
-            );
-          })()}
-        </div>
-      </div>
-    </div>
+                );
+              })()}
+          </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
   );
 }

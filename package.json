@@ -10,6 +10,7 @@
     "build": "npm run build --workspace=@openspecui/shared && npm run build --workspace=@openspecui/web && npm run build --workspace=openspecui",
     "typecheck": "npm run typecheck --workspace=@openspecui/shared && npm run typecheck --workspace=openspecui && npm run typecheck --workspace=@openspecui/web",
     "test": "npm run test --workspace=openspecui",
+    "test:web": "npm run test --workspace=@openspecui/web",
     "dev:server": "npm run dev --workspace=openspecui",
     "dev:web": "npm run dev --workspace=@openspecui/web",
     "start": "node packages/server/dist/cli.js"

@@ -11,10 +11,29 @@ import type {
   RepoKind,
 } from '@openspecui/shared';
 import { FolderOpen, FolderSearch, Globe, Layers, MonitorUp, Plus, X } from 'lucide-react';
-import { useState } from 'react';
-import { api } from '../api';
-import { useEscapeKey } from '../hooks/useEscapeKey';
-import { LocalFolderPickerModal } from './LocalFolderPickerModal';
+import { useRef, useState } from 'react';
+import { api } from '@/api';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Spinner } from '@/components/ui/spinner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { LocalFolderPickerModal } from '@/components/LocalFolderPickerModal';
+import { RepoKindSelect } from './workspace/RepoKindSelect';
 
 interface WorkspaceModalProps {
   mode: 'create-workspace' | 'add-repo';
@@ -24,6 +43,8 @@ interface WorkspaceModalProps {
   onCompleted: (workspaceId?: string) => void;
 }
 
+type SourceTab = 'local' | 'remote' | 'scan' | 'workset';
+
 export function WorkspaceModal({
   mode,
   workspaceId,
@@ -32,7 +53,7 @@ export function WorkspaceModal({
   onCompleted,
 }: WorkspaceModalProps) {
   const [workspaceName, setWorkspaceName] = useState('');
-  const [sourceTab, setSourceTab] = useState<'local' | 'remote' | 'scan' | 'workset'>('local');
+  const [sourceTab, setSourceTab] = useState<SourceTab>('local');
 
   // 本地或远程表单字段
   const [localPath, setLocalPath] = useState('');
@@ -58,9 +79,19 @@ export function WorkspaceModal({
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [configDirPath, setConfigDirPath] = useState('');
 
-  // 当打开子级目录浏览器弹窗时，外层弹窗暂停响应 Esc，保证只关闭最上层弹窗
-  useEscapeKey(onClose, !folderPickerTarget);
+  const returnFocusTarget = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+
+  const handleCloseAutoFocus = (event: Event) => {
+    const target = returnFocusTarget.current;
+    if (target?.isConnected && target !== document.body) {
+      event.preventDefault();
+      target.focus();
+    }
+  };
 
   const runScan = async (targetRoot: string, filterOpenSpec: boolean) => {
     if (!targetRoot.trim()) {
@@ -142,18 +173,18 @@ export function WorkspaceModal({
       setRemoteUrl('');
       setRepoName('');
     } else if (sourceTab === 'scan') {
-      const picked = candidates.filter((c) => selectedPaths.has(c.path));
+      const picked = candidates.filter((candidate) => selectedPaths.has(candidate.path));
       if (picked.length === 0) {
         setErrorMsg('请至少勾选一个扫描到的仓库');
         return;
       }
       setDraftRepos((prev) => [
         ...prev,
-        ...picked.map((c) => ({
+        ...picked.map((candidate) => ({
           sourceType: 'local' as const,
-          localPath: c.path,
-          name: c.name,
-          role: c.name.toUpperCase().slice(0, 12),
+          localPath: candidate.path,
+          name: candidate.name,
+          role: candidate.name.toUpperCase().slice(0, 12),
           kind: 'hybrid' as const,
         })),
       ]);
@@ -195,12 +226,12 @@ export function WorkspaceModal({
             ];
           } else if (sourceTab === 'scan' && selectedPaths.size > 0) {
             reposToCreate = candidates
-              .filter((c) => selectedPaths.has(c.path))
-              .map((c) => ({
+              .filter((candidate) => selectedPaths.has(candidate.path))
+              .map((candidate) => ({
                 sourceType: 'local' as const,
-                localPath: c.path,
-                name: c.name,
-                role: c.name.toUpperCase().slice(0, 12),
+                localPath: candidate.path,
+                name: candidate.name,
+                role: candidate.name.toUpperCase().slice(0, 12),
                 kind: 'hybrid' as const,
               }));
           }
@@ -229,12 +260,12 @@ export function WorkspaceModal({
             autoSyncIntervalMinutes: autoSyncMinutes,
           });
         } else if (sourceTab === 'scan') {
-          for (const c of candidates.filter((item) => selectedPaths.has(item.path))) {
+          for (const candidate of candidates.filter((item) => selectedPaths.has(item.path))) {
             await api.addRepo(workspaceId, {
               sourceType: 'local',
-              localPath: c.path,
-              name: c.name,
-              role: c.name.toUpperCase().slice(0, 12),
+              localPath: candidate.path,
+              name: candidate.name,
+              role: candidate.name.toUpperCase().slice(0, 12),
               kind: 'hybrid',
             });
           }
@@ -249,8 +280,6 @@ export function WorkspaceModal({
     }
   };
 
-  const [configDirPath, setConfigDirPath] = useState('');
-
   const handleImportOpenSpecUiJson = async () => {
     if (!configDirPath.trim()) {
       setErrorMsg('请输入包含 openspec-ui.json 的目录路径');
@@ -259,8 +288,8 @@ export function WorkspaceModal({
     setErrorMsg(null);
     setSubmitting(true);
     try {
-      const ws = await api.importOpenSpecUiJson(configDirPath.trim());
-      onCompleted(ws.id);
+      const workspace = await api.importOpenSpecUiJson(configDirPath.trim());
+      onCompleted(workspace.id);
       onClose();
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -273,8 +302,8 @@ export function WorkspaceModal({
     setErrorMsg(null);
     setSubmitting(true);
     try {
-      const ws = await api.importWorkset(name, members);
-      onCompleted(ws.id);
+      const workspace = await api.importWorkset(name, members);
+      onCompleted(workspace.id);
       onClose();
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -283,448 +312,505 @@ export function WorkspaceModal({
     }
   };
 
+  const sourceTabs = [
+    { id: 'local', label: '本地目录路径', icon: Plus },
+    { id: 'remote', label: '线上 Git 地址（只读缓存）', icon: Globe },
+    { id: 'scan', label: '扫描本地目录', icon: FolderSearch },
+    ...(mode === 'create-workspace'
+      ? [{ id: 'workset', label: `OpenSpec Workset/Store (${env.worksets.length + env.stores.length})`, icon: Layers }]
+      : []),
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
-      <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5">
-          <h2 className="text-base font-semibold text-slate-100">
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
+        className="flex max-h-[calc(100dvh-2rem)] max-w-2xl flex-col gap-0 overflow-hidden bg-card p-0 text-foreground"
+        showCloseButton={false}
+        onCloseAutoFocus={handleCloseAutoFocus}
+      >
+        <DialogHeader className="shrink-0 px-5 py-3.5 pr-14">
+          <DialogTitle>
             {mode === 'create-workspace' ? '新建逻辑工作区（支持单仓 / 前后端多仓 / 线上 Git）' : '向当前工作区绑定仓库'}
-          </h2>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-200">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            填写逻辑工作区与仓库信息，或导入本机 OpenSpec 资源。
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="max-h-[75vh] space-y-4 overflow-y-auto p-5 text-sm">
-          {mode === 'create-workspace' && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-300">逻辑工作区名称</label>
-              <input
-                type="text"
-                value={workspaceName}
-                onChange={(e) => setWorkspaceName(e.target.value)}
-                placeholder="例如：电商系统（前后端联合）"
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-sky-500 focus:outline-none"
-              />
-            </div>
-          )}
+        <DialogClose asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-2 right-2"
+            aria-label="关闭工作区弹窗"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </DialogClose>
 
-          {/* 来源切换 */}
-          <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-2">
-            {[
-              { id: 'local', label: '本地目录路径', icon: Plus },
-              { id: 'remote', label: '线上 Git 地址（只读缓存）', icon: Globe },
-              { id: 'scan', label: '扫描本地目录', icon: FolderSearch },
-              ...(mode === 'create-workspace'
-                ? [{ id: 'workset', label: `OpenSpec Workset/Store (${env.worksets.length + env.stores.length})`, icon: Layers }]
-                : []),
-            ].map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setSourceTab(tab.id as typeof sourceTab)}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium ${
-                    sourceTab === tab.id
-                      ? 'bg-sky-600 text-white'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {sourceTab === 'local' && (
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs text-slate-400">本地仓库 / Worktree 绝对路径</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={localPath}
-                    onChange={(e) => setLocalPath(e.target.value)}
-                    placeholder="例如：D:\code\shop-web"
-                    className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setFolderPickerTarget('localPath')}
-                    className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-700"
-                    title="在网页内浏览本机盘符与目录树"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5 text-sky-400" /> 浏览目录
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pickingNative}
-                    onClick={() => void handleNativeFolderPick('localPath')}
-                    className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-                    title="调用操作系统文件夹选择弹窗"
-                  >
-                    <MonitorUp className="h-3.5 w-3.5 text-emerald-400" /> {pickingNative ? '等待选择...' : '系统弹窗'}
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">显示名（可选）</label>
-                  <input
-                    type="text"
-                    value={repoName}
-                    onChange={(e) => setRepoName(e.target.value)}
-                    placeholder="自动取目录名"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">角色标签</label>
-                  <input
-                    type="text"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                    placeholder="FE / BE / STORE"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">仓库类型</label>
-                  <select
-                    value={kind}
-                    onChange={(e) => setKind(e.target.value as RepoKind)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs"
-                  >
-                    <option value="hybrid">代码 + OpenSpec</option>
-                    <option value="code">纯代码仓</option>
-                    <option value="store">独立 Store 仓</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {sourceTab === 'remote' && (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-sky-500/30 bg-sky-950/30 px-3 py-2 text-xs text-sky-200">
-                仅放行 https://、http://、ssh://、git@host:repo 格式；克隆至本地受控缓存目录并保持只读，复用本机 SSH Key / Git 凭证。
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-400">线上 Git 地址</label>
-                <input
+        <ScrollArea className="min-h-0 flex-1 basis-[min(75vh,40rem)]">
+          <div className="flex flex-col gap-4 p-5 text-sm">
+            {mode === 'create-workspace' && (
+              <Field>
+                <FieldLabel htmlFor="workspace-name">逻辑工作区名称</FieldLabel>
+                <Input
+                  id="workspace-name"
                   type="text"
-                  value={remoteUrl}
-                  onChange={(e) => setRemoteUrl(e.target.value)}
-                  placeholder="https://github.com/org/repo.git 或 git@gitlab.com:org/repo.git"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100"
+                  value={workspaceName}
+                  onChange={(event) => setWorkspaceName(event.target.value)}
+                  placeholder="例如：电商系统（前后端联合）"
                 />
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">显示名（可选）</label>
-                  <input
-                    type="text"
-                    value={repoName}
-                    onChange={(e) => setRepoName(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">角色标签</label>
-                  <input
-                    type="text"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">仓库类型</label>
-                  <select
-                    value={kind}
-                    onChange={(e) => setKind(e.target.value as RepoKind)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs"
-                  >
-                    <option value="hybrid">代码 + OpenSpec</option>
-                    <option value="store">远程 Store 仓</option>
-                    <option value="code">纯代码仓</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">自动同步(分钟)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={1440}
-                    value={autoSyncMinutes}
-                    onChange={(e) => setAutoSyncMinutes(Number(e.target.value) || 0)}
-                    placeholder="0=手动"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+              </Field>
+            )}
 
-          {sourceTab === 'scan' && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                <input
-                  type="text"
-                  value={scanRoot}
-                  onChange={(e) => setScanRoot(e.target.value)}
-                  placeholder="输入或选择父目录路径，例如 D:\code"
-                  className="min-w-[200px] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 font-mono text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={() => setFolderPickerTarget('scanRoot')}
-                  className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-700"
-                >
-                  <FolderOpen className="h-3.5 w-3.5 text-sky-400" /> 浏览目录
-                </button>
-                <button
-                  type="button"
-                  disabled={pickingNative}
-                  onClick={() => void handleNativeFolderPick('scanRoot')}
-                  className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-                >
-                  <MonitorUp className="h-3.5 w-3.5 text-emerald-400" /> 系统弹窗
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleScan()}
-                  className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
-                >
-                  扫描
-                </button>
-              </div>
+            <Tabs value={sourceTab} onValueChange={(value) => setSourceTab(value as SourceTab)}>
+              <TabsList
+                variant="line"
+                aria-label="仓库来源"
+                className="w-full justify-start overflow-x-auto rounded-none border-b border-border"
+              >
+                {sourceTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <TabsTrigger key={tab.id} value={tab.id} className="shrink-0 px-3 text-xs">
+                      <Icon data-icon="inline-start" aria-hidden="true" />
+                      {tab.label}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <label className="flex cursor-pointer items-center gap-1.5 text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={onlyOpenSpec}
-                    onChange={(e) => {
-                      const next = e.target.checked;
-                      setOnlyOpenSpec(next);
-                      if (scanRoot.trim()) {
-                        void runScan(scanRoot, next);
-                      }
-                    }}
+              <TabsContent value="local" className="flex flex-col gap-3">
+                <Field>
+                  <FieldLabel htmlFor="workspace-local-path">本地仓库 / Worktree 绝对路径</FieldLabel>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      id="workspace-local-path"
+                      type="text"
+                      value={localPath}
+                      onChange={(event) => setLocalPath(event.target.value)}
+                      placeholder="例如：D:\code\shop-web"
+                      className="min-w-0 flex-1 font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFolderPickerTarget('localPath')}
+                      title="在网页内浏览本机盘符与目录树"
+                    >
+                      <FolderOpen data-icon="inline-start" aria-hidden="true" className="text-info" />
+                      浏览目录
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={pickingNative}
+                      onClick={() => void handleNativeFolderPick('localPath')}
+                      title="调用操作系统文件夹选择弹窗"
+                    >
+                      {pickingNative ? (
+                        <Spinner data-icon="inline-start" aria-hidden="true" />
+                      ) : (
+                        <MonitorUp data-icon="inline-start" aria-hidden="true" className="text-success" />
+                      )}
+                      {pickingNative ? '等待选择...' : '系统弹窗'}
+                    </Button>
+                  </div>
+                </Field>
+
+                <FieldGroup className="gap-2 sm:grid sm:grid-cols-3">
+                  <Field>
+                    <FieldLabel htmlFor="workspace-local-name">显示名（可选）</FieldLabel>
+                    <Input
+                      id="workspace-local-name"
+                      type="text"
+                      value={repoName}
+                      onChange={(event) => setRepoName(event.target.value)}
+                      placeholder="自动取目录名"
+                      className="text-xs"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="workspace-local-role">角色标签</FieldLabel>
+                    <Input
+                      id="workspace-local-role"
+                      type="text"
+                      value={role}
+                      onChange={(event) => setRole(event.target.value)}
+                      placeholder="FE / BE / STORE"
+                      className="text-xs"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="workspace-local-kind">仓库类型</FieldLabel>
+                    <RepoKindSelect
+                      id="workspace-local-kind"
+                      value={kind}
+                      onValueChange={setKind}
+                    />
+                  </Field>
+                </FieldGroup>
+              </TabsContent>
+
+              <TabsContent value="remote" className="flex flex-col gap-3">
+                <Alert className="border-info/30 bg-diff-info text-info">
+                  <AlertTitle>远程仓库只读缓存</AlertTitle>
+                  <AlertDescription className="text-info">
+                    仅放行 https://、http://、ssh://、git@host:repo 格式；克隆至本地受控缓存目录并保持只读，复用本机 SSH Key / Git 凭证。
+                  </AlertDescription>
+                </Alert>
+
+                <Field>
+                  <FieldLabel htmlFor="workspace-remote-url">线上 Git 地址</FieldLabel>
+                  <Input
+                    id="workspace-remote-url"
+                    type="text"
+                    value={remoteUrl}
+                    onChange={(event) => setRemoteUrl(event.target.value)}
+                    placeholder="https://github.com/org/repo.git 或 git@gitlab.com:org/repo.git"
+                    className="font-mono text-xs"
                   />
-                  <span>仅显示 OpenSpec 项目（过滤无 openspec/ 的纯 Git 仓）</span>
-                </label>
+                </Field>
+
+                <FieldGroup className="gap-2 sm:grid sm:grid-cols-4">
+                  <Field>
+                    <FieldLabel htmlFor="workspace-remote-name">显示名（可选）</FieldLabel>
+                    <Input
+                      id="workspace-remote-name"
+                      type="text"
+                      value={repoName}
+                      onChange={(event) => setRepoName(event.target.value)}
+                      className="text-xs"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="workspace-remote-role">角色标签</FieldLabel>
+                    <Input
+                      id="workspace-remote-role"
+                      type="text"
+                      value={role}
+                      onChange={(event) => setRole(event.target.value)}
+                      className="text-xs"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="workspace-remote-kind">仓库类型</FieldLabel>
+                    <RepoKindSelect
+                      id="workspace-remote-kind"
+                      value={kind}
+                      onValueChange={setKind}
+                      remote
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="workspace-auto-sync">自动同步(分钟)</FieldLabel>
+                    <Input
+                      id="workspace-auto-sync"
+                      type="number"
+                      min={0}
+                      max={1440}
+                      value={autoSyncMinutes}
+                      onChange={(event) => setAutoSyncMinutes(Number(event.target.value) || 0)}
+                      placeholder="0=手动"
+                      className="text-xs"
+                    />
+                  </Field>
+                </FieldGroup>
+              </TabsContent>
+
+              <TabsContent value="scan" className="flex flex-col gap-3">
+                <Field>
+                  <FieldLabel htmlFor="workspace-scan-root">扫描父目录</FieldLabel>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      id="workspace-scan-root"
+                      type="text"
+                      value={scanRoot}
+                      onChange={(event) => setScanRoot(event.target.value)}
+                      placeholder="输入或选择父目录路径，例如 D:\code"
+                      className="min-w-[200px] flex-1 font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFolderPickerTarget('scanRoot')}
+                    >
+                      <FolderOpen data-icon="inline-start" aria-hidden="true" className="text-info" />
+                      浏览目录
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={pickingNative}
+                      onClick={() => void handleNativeFolderPick('scanRoot')}
+                    >
+                      {pickingNative ? (
+                        <Spinner data-icon="inline-start" aria-hidden="true" />
+                      ) : (
+                        <MonitorUp data-icon="inline-start" aria-hidden="true" className="text-success" />
+                      )}
+                      系统弹窗
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => void handleScan()}>
+                      扫描
+                    </Button>
+                  </div>
+                </Field>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <Field orientation="horizontal">
+                    <Checkbox
+                      id="workspace-only-openspec"
+                      checked={onlyOpenSpec}
+                      onCheckedChange={(checked) => {
+                        const next = checked === true;
+                        setOnlyOpenSpec(next);
+                        if (scanRoot.trim()) {
+                          void runScan(scanRoot, next);
+                        }
+                      }}
+                    />
+                    <FieldLabel htmlFor="workspace-only-openspec" className="font-normal">
+                      仅显示 OpenSpec 项目（过滤无 openspec/ 的纯 Git 仓）
+                    </FieldLabel>
+                  </Field>
+
+                  {candidates.length > 0 && (
+                    <div className="flex items-center gap-2 text-11">
+                      <span className="text-muted-foreground">
+                        共 {candidates.length} 个，已选 {selectedPaths.size} 个
+                      </span>
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="xs"
+                        onClick={() => setSelectedPaths(new Set(candidates.map((candidate) => candidate.path)))}
+                      >
+                        全选
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="xs"
+                        onClick={() => setSelectedPaths(new Set())}
+                      >
+                        清空
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {hasScanned && candidates.length === 0 ? (
+                  <Empty className="border border-dashed border-border bg-muted/30 p-6">
+                    <EmptyHeader>
+                      <EmptyTitle>未发现符合条件的项目</EmptyTitle>
+                      <EmptyDescription>可检查目录深度或取消“仅显示 OpenSpec 项目”</EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ) : null}
 
                 {candidates.length > 0 && (
-                  <div className="flex items-center gap-2 text-[11px]">
-                    <span className="text-slate-400">
-                      共 {candidates.length} 个，已选 {selectedPaths.size} 个
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPaths(new Set(candidates.map((c) => c.path)))}
-                      className="text-sky-400 hover:underline"
-                    >
-                      全选
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPaths(new Set())}
-                      className="text-slate-400 hover:underline"
-                    >
-                      清空
-                    </button>
+                  <ScrollArea className="h-48 rounded-lg border border-border bg-input p-1.5">
+                    <div className="flex flex-col gap-1">
+                      {candidates.map((candidate, index) => {
+                        const checked = selectedPaths.has(candidate.path);
+                        const checkboxId = `workspace-scan-candidate-${index}`;
+                        return (
+                          <Field
+                            key={candidate.path}
+                            orientation="horizontal"
+                            className="rounded-md px-2 py-1 hover:bg-muted"
+                          >
+                            <Checkbox
+                              id={checkboxId}
+                              checked={checked}
+                              onCheckedChange={() => {
+                                setSelectedPaths((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(candidate.path)) next.delete(candidate.path);
+                                  else next.add(candidate.path);
+                                  return next;
+                                });
+                              }}
+                            />
+                            <FieldLabel htmlFor={checkboxId} className="min-w-0 flex-1 font-normal">
+                              <span className="flex min-w-0 flex-1 items-center gap-2">
+                                <span className="text-xs font-medium text-foreground">{candidate.name}</span>
+                                <span className="truncate font-mono text-11 text-muted-foreground">{candidate.path}</span>
+                              </span>
+                              <span className="flex shrink-0 gap-1">
+                                {candidate.hasOpenSpec && (
+                                  <Badge variant="secondary" className="text-success">OpenSpec</Badge>
+                                )}
+                                {candidate.hasGit && (
+                                  <Badge variant="secondary" className="text-info">Git</Badge>
+                                )}
+                              </span>
+                            </FieldLabel>
+                          </Field>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                )}
+              </TabsContent>
+
+              <TabsContent value="workset" className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-input p-3">
+                  <div className="text-xs font-semibold text-foreground">导入 openspec-ui.json 配置文件</div>
+                  <Field>
+                    <FieldLabel htmlFor="workspace-config-dir" className="sr-only">
+                      openspec-ui.json 所在目录
+                    </FieldLabel>
+                    <div className="flex gap-2">
+                      <Input
+                        id="workspace-config-dir"
+                        type="text"
+                        value={configDirPath}
+                        onChange={(event) => setConfigDirPath(event.target.value)}
+                        placeholder="输入含 openspec-ui.json 的目录路径"
+                        className="flex-1 font-mono text-xs"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={submitting}
+                        onClick={() => void handleImportOpenSpecUiJson()}
+                      >
+                        导入配置
+                      </Button>
+                    </div>
+                  </Field>
+                </div>
+
+                {env.worksets.length === 0 && env.stores.length === 0 ? (
+                  <Empty className="border border-dashed border-border bg-muted/30 p-6">
+                    <EmptyHeader>
+                      <EmptyTitle>本机暂无已注册的 OpenSpec Workset 或 Store</EmptyTitle>
+                    </EmptyHeader>
+                  </Empty>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {env.worksets.map((workset) => (
+                      <div key={workset.name} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-input p-3">
+                        <div>
+                          <div className="text-xs font-semibold text-foreground">Workset: {workset.name}</div>
+                          <div className="text-11 text-muted-foreground">{workset.members.length} 个成员目录</div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void handleImportWorkset(workset.name, workset.members)}
+                        >
+                          一键导入
+                        </Button>
+                      </div>
+                    ))}
+                    {env.stores.map((store) => (
+                      <div key={store.id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-input p-3">
+                        <div>
+                          <div className="text-xs font-semibold text-foreground">Store: {store.id}</div>
+                          <div className="font-mono text-11 text-muted-foreground">{store.path}</div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void handleImportWorkset(`store-${store.id}`, [store.path])}
+                        >
+                          作为工作区导入
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 )}
+              </TabsContent>
+            </Tabs>
+
+            {mode === 'create-workspace' && sourceTab !== 'workset' && (
+              <div className="flex items-center justify-between gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={handleAddDraftFromForm}>
+                  <Plus data-icon="inline-start" aria-hidden="true" /> 加入待绑定仓库列表
+                </Button>
+                <span className="text-xs text-muted-foreground">已加入 {draftRepos.length} 个仓库</span>
               </div>
+            )}
 
-              {hasScanned && candidates.length === 0 ? (
-                <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-center text-xs text-slate-500">
-                  未发现符合条件的项目（可检查目录深度或取消“仅显示 OpenSpec 项目”）
-                </div>
-              ) : null}
-
-              {candidates.length > 0 && (
-                <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950 p-2">
-                  {candidates.map((c) => {
-                    const checked = selectedPaths.has(c.path);
-                    return (
-                      <label key={c.path} className="flex cursor-pointer items-center justify-between rounded px-2 py-1 hover:bg-slate-900">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => {
-                              setSelectedPaths((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(c.path)) next.delete(c.path);
-                                else next.add(c.path);
-                                return next;
-                              });
-                            }}
-                          />
-                          <span className="text-xs font-medium text-slate-200">{c.name}</span>
-                          <span className="font-mono text-[11px] text-slate-500">{c.path}</span>
-                        </div>
-                        <div className="flex gap-1 text-[10px]">
-                          {c.hasOpenSpec && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-emerald-300">OpenSpec</span>}
-                          {c.hasGit && <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-sky-300">Git</span>}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {sourceTab === 'workset' && (
-            <div className="space-y-3">
-              <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
-                <div className="text-xs font-semibold text-slate-200">导入 openspec-ui.json 配置文件</div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={configDirPath}
-                    onChange={(e) => setConfigDirPath(e.target.value)}
-                    placeholder="输入含 openspec-ui.json 的目录路径"
-                    className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 font-mono text-xs text-slate-100"
-                  />
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={() => void handleImportOpenSpecUiJson()}
-                    className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                  >
-                    导入配置
-                  </button>
-                </div>
-              </div>
-
-              {env.worksets.length === 0 && env.stores.length === 0 ? (
-                <div className="rounded-lg border border-slate-800 p-4 text-center text-xs text-slate-500">
-                  本机暂无已注册的 OpenSpec Workset 或 Store
-                </div>
-              ) : (
-                <>
-                  {env.worksets.map((w) => (
-                    <div key={w.name} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 p-3">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-200">Workset: {w.name}</div>
-                        <div className="text-[11px] text-slate-500">{w.members.length} 个成员目录</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleImportWorkset(w.name, w.members)}
-                        className="rounded bg-sky-600 px-2.5 py-1 text-xs text-white hover:bg-sky-500"
-                      >
-                        一键导入
-                      </button>
+            {draftRepos.length > 0 && (
+              <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-input p-2.5">
+                {draftRepos.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between gap-2 text-xs">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Badge variant="secondary" className="text-info">{item.role}</Badge>
+                      <Badge variant="outline" className="text-muted-foreground">
+                        {item.sourceType === 'remote' ? '线上只读' : '本地'}
+                      </Badge>
+                      <span className="truncate font-mono text-foreground-secondary">
+                        {item.localPath ?? item.remoteUrl}
+                      </span>
                     </div>
-                  ))}
-                  {env.stores.map((s) => (
-                    <div key={s.id} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 p-3">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-200">Store: {s.id}</div>
-                        <div className="font-mono text-[11px] text-slate-500">{s.path}</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleImportWorkset(`store-${s.id}`, [s.path])}
-                        className="rounded bg-emerald-600 px-2.5 py-1 text-xs text-white hover:bg-emerald-500"
-                      >
-                        作为工作区导入
-                      </button>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-
-          {mode === 'create-workspace' && sourceTab !== 'workset' && (
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={handleAddDraftFromForm}
-                className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700"
-              >
-                <Plus className="h-3.5 w-3.5" /> 加入待绑定仓库列表
-              </button>
-              <span className="text-xs text-slate-400">已加入 {draftRepos.length} 个仓库</span>
-            </div>
-          )}
-
-          {draftRepos.length > 0 && (
-            <div className="space-y-1.5 rounded-lg border border-slate-800 bg-slate-950 p-2.5">
-              {draftRepos.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 truncate">
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-sky-300">{item.role}</span>
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
-                      {item.sourceType === 'remote' ? '线上只读' : '本地'}
-                    </span>
-                    <span className="truncate font-mono text-slate-300">
-                      {item.localPath ?? item.remoteUrl}
-                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="text-destructive"
+                      onClick={() => setDraftRepos((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+                    >
+                      移除
+                    </Button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setDraftRepos((prev) => prev.filter((_, i) => i !== idx))}
-                    className="text-slate-500 hover:text-rose-400"
-                  >
-                    移除
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
 
-          {errorMsg && (
-            <div className="rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-300">
-              {errorMsg}
-            </div>
-          )}
-        </div>
+            {errorMsg && (
+              <Alert variant="destructive" className="border-destructive/40 bg-diff-removed">
+                <AlertDescription>{errorMsg}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+        </ScrollArea>
 
         {sourceTab !== 'workset' && (
-          <div className="flex justify-end gap-2 border-t border-slate-800 px-5 py-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-700 px-4 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
-            >
+          <DialogFooter className="mx-0 mb-0 shrink-0 px-5 py-3">
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>
               取消
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              size="sm"
               disabled={submitting}
               onClick={() => void handleSubmit()}
-              className="rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
             >
+              {submitting && <Spinner data-icon="inline-start" aria-hidden="true" />}
               {submitting ? '处理中...' : mode === 'create-workspace' ? '创建并切换' : '确认绑定'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         )}
-      </div>
 
-      {folderPickerTarget && (
-        <LocalFolderPickerModal
-          initialPath={folderPickerTarget === 'localPath' ? localPath : scanRoot}
-          onSelect={(pickedPath) => {
-            if (folderPickerTarget === 'localPath') {
-              setLocalPath(pickedPath);
-            } else {
-              setScanRoot(pickedPath);
-              void runScan(pickedPath, onlyOpenSpec);
-            }
-          }}
-          onClose={() => setFolderPickerTarget(null)}
-        />
-      )}
-    </div>
+        {folderPickerTarget && (
+          <LocalFolderPickerModal
+            initialPath={folderPickerTarget === 'localPath' ? localPath : scanRoot}
+            onSelect={(pickedPath) => {
+              if (folderPickerTarget === 'localPath') {
+                setLocalPath(pickedPath);
+              } else {
+                setScanRoot(pickedPath);
+                void runScan(pickedPath, onlyOpenSpec);
+              }
+            }}
+            onClose={() => setFolderPickerTarget(null)}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

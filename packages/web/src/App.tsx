@@ -1,23 +1,9 @@
 /**
  * @file OpenSpecUI 主应用工作台组件
- * @description 管理全局工作区切换、主题切换、手机局域网访问引导、WebSocket 实时刷新及看板/Git 视图。
- * @author ypc
+ * @description 管理全局工作区、WebSocket 刷新、主视图和顶层弹窗编排。
  */
 
 import type { OpenSpecEnvironmentInfo, RegistryStoreData, WorkspaceIdea } from '@openspecui/shared';
-import {
-  FolderPlus,
-  GitBranch,
-  Layers,
-  Lock,
-  Moon,
-  Plus,
-  RefreshCw,
-  Smartphone,
-  Sun,
-  Trash2,
-  X,
-} from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, connectWorkbenchSocket, type WorkspaceOverviewResponse } from './api';
 import { ChangeBoard } from './components/ChangeBoard';
@@ -25,7 +11,14 @@ import { ChangeDetailView } from './components/ChangeDetailView';
 import { GitActivityView } from './components/GitActivityView';
 import { IdeaModal } from './components/IdeaModal';
 import { WorkspaceModal } from './components/WorkspaceModal';
-import { useEscapeKey } from './hooks/useEscapeKey';
+import { EmptyState } from './components/common/EmptyState';
+import { InlineAlert } from './components/common/InlineAlert';
+import { LoadingState } from './components/common/LoadingState';
+import { AppHeader } from './components/layout/AppHeader';
+import { MobileAccessDialog } from './components/layout/MobileAccessDialog';
+import { ReadOnlyBanner } from './components/layout/ReadOnlyBanner';
+import { WorkspaceDeleteDialog } from './components/layout/WorkspaceDeleteDialog';
+import { Button } from './components/ui/button';
 
 export function App() {
   const [registry, setRegistry] = useState<RegistryStoreData | null>(null);
@@ -40,25 +33,11 @@ export function App() {
   const [detailTarget, setDetailTarget] = useState<{ groupKey: string; focusRepoId?: string } | null>(null);
   const [ideaTarget, setIdeaTarget] = useState<WorkspaceIdea | null | undefined>(undefined);
   const [showMobileModal, setShowMobileModal] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [mainView, setMainView] = useState<'openspec' | 'git'>('openspec');
   const [modalMode, setModalMode] = useState<'create-workspace' | 'add-repo' | null>(null);
-  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
-    window.localStorage.getItem('openspecui-theme') === 'light' ? 'light' : 'dark',
-  );
   const [loading, setLoading] = useState(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
-
-  useEscapeKey(() => setShowMobileModal(false), showMobileModal);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'light') {
-      root.classList.add('theme-light');
-    } else {
-      root.classList.remove('theme-light');
-    }
-    window.localStorage.setItem('openspecui-theme', theme);
-  }, [theme]);
 
   const loadWorkspaceData = useCallback(async (targetWorkspaceId?: string | null) => {
     try {
@@ -120,201 +99,67 @@ export function App() {
     await loadWorkspaceData(workspaceId);
   };
 
-  const handleDeleteCurrentWorkspace = async () => {
+  const handleDeleteWorkspace = async (cleanupCache: boolean) => {
     if (!overview || readOnlyMode) return;
-    const hasRemote = overview.workspace.repos.some((r) => r.sourceType === 'remote');
-    const ok = window.confirm(`确认移除工作区「${overview.workspace.name}」？（本地代码文件不会被删除）`);
-    if (!ok) return;
-    const cleanupCache = hasRemote
-      ? window.confirm('工作区包含远程缓存仓，是否一并清理未被其他工作区引用的本地缓存？')
-      : false;
-    const res = await api.deleteWorkspace(overview.workspace.id, cleanupCache);
-    await loadWorkspaceData(res.activeWorkspaceId);
+    const result = await api.deleteWorkspace(overview.workspace.id, cleanupCache);
+    setShowDeleteDialog(false);
+    await loadWorkspaceData(result.activeWorkspaceId);
   };
 
   const activeGroup = detailTarget
-    ? overview?.changeGroups.find((g) => g.key === detailTarget.groupKey) ?? null
+    ? overview?.changeGroups.find((group) => group.key === detailTarget.groupKey) ?? null
     : null;
+  const hasRemoteRepos = overview?.workspace.repos.some((repo) => repo.sourceType === 'remote') ?? false;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      {readOnlyMode && (
-        <div className="border-b border-amber-500/30 bg-amber-500/15 px-4 py-1.5 text-center text-xs text-amber-200">
-          <span className="inline-flex items-center gap-1.5">
-            <Lock className="h-3.5 w-3.5" /> 当前通过局域网（--host 0.0.0.0）以只读模式运行：所有写入、回写与本机目录控制接口已安全锁定
-          </span>
-        </div>
-      )}
+    <div className="min-h-screen bg-background text-foreground">
+      {readOnlyMode && <ReadOnlyBanner />}
 
-      {/* 顶部全局工作区切换导航栏（全屏铺满） */}
-      <header className="sticky top-0 z-30 w-full border-b border-slate-800 bg-slate-950/90 backdrop-blur">
-        <div className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex items-center gap-2 font-semibold text-sky-400">
-              <Layers className="h-5 w-5" />
-              <span>OpenSpecUI</span>
-            </div>
-
-            <select
-              value={overview?.workspace.id ?? ''}
-              onChange={(e) => e.target.value && void handleSwitchWorkspace(e.target.value)}
-              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-100"
-            >
-              {!registry?.workspaces.length && <option value="">暂无工作区</option>}
-              {registry?.workspaces.map((ws) => (
-                <option key={ws.id} value={ws.id}>
-                  {ws.name} ({ws.repos.length} 仓)
-                </option>
-              ))}
-            </select>
-
-            {!readOnlyMode && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setModalMode('create-workspace')}
-                  className="flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
-                >
-                  <Plus className="h-3.5 w-3.5" /> 新建工作区
-                </button>
-
-                {overview && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setModalMode('add-repo')}
-                      className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
-                    >
-                      <FolderPlus className="h-3.5 w-3.5 text-sky-400" /> 绑定仓库 / 线上 Git
-                    </button>
-                    <button
-                      type="button"
-                      title="删除当前工作区"
-                      onClick={() => void handleDeleteCurrentWorkspace()}
-                      className="rounded-lg border border-slate-800 p-1.5 text-slate-400 hover:border-rose-500/40 hover:text-rose-400"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* 顶部多仓 Git 状态 + 手机访问 + 主题切换 */}
-          <div className="flex flex-wrap items-center gap-2">
-            {overview?.gitStatuses.map((st) => (
-              <div
-                key={st.repoId}
-                className="flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-[11px]"
-              >
-                <span className="font-semibold text-sky-400">[{st.repoRole}]</span>
-                <GitBranch className="h-3 w-3 text-slate-400" />
-                <span className="font-mono text-slate-200">{st.branch}</span>
-                {st.dirtyCount > 0 && (
-                  <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">
-                    *{st.dirtyCount}
-                  </span>
-                )}
-              </div>
-            ))}
-
-            <button
-              type="button"
-              onClick={() => setShowMobileModal(true)}
-              className="rounded-lg border border-slate-800 p-1.5 text-slate-400 hover:bg-slate-900 hover:text-slate-200"
-              title="在手机/局域网打开"
-            >
-              <Smartphone className="h-3.5 w-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-              className="rounded-lg border border-slate-800 p-1.5 text-slate-400 hover:bg-slate-900 hover:text-slate-200"
-              title={theme === 'dark' ? '切换浅色主题' : '切换深色主题'}
-            >
-              {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => void loadWorkspaceData()}
-              className="rounded-lg border border-slate-800 p-1.5 text-slate-400 hover:bg-slate-900 hover:text-slate-200"
-              title="刷新工作区"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {overview && (
-          <div className="flex w-full items-center justify-between border-t border-slate-900 px-4 py-2 text-xs md:px-6">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setMainView('openspec')}
-                className={`rounded-md px-3 py-1 font-medium ${
-                  mainView === 'openspec' ? 'bg-slate-800 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                OpenSpec 看板与规范
-              </button>
-              <button
-                type="button"
-                onClick={() => setMainView('git')}
-                className={`rounded-md px-3 py-1 font-medium ${
-                  mainView === 'git' ? 'bg-slate-800 text-sky-300' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                多仓 Git 状态与活动流 ({overview.workspace.repos.length})
-              </button>
-            </div>
-            <div className="text-[11px] text-slate-500">
-              {env.cliAvailable ? `OpenSpec CLI ${env.cliVersion}` : 'OpenSpec CLI 未检测到（文件直读模式）'}
-            </div>
-          </div>
-        )}
-      </header>
+      <AppHeader
+        registry={registry}
+        overview={overview}
+        env={env}
+        readOnlyMode={readOnlyMode}
+        mainView={mainView}
+        onMainViewChange={setMainView}
+        onSwitchWorkspace={(workspaceId) => void handleSwitchWorkspace(workspaceId)}
+        onCreateWorkspace={() => setModalMode('create-workspace')}
+        onAddRepo={() => setModalMode('add-repo')}
+        onDeleteWorkspace={() => setShowDeleteDialog(true)}
+        onShowMobile={() => setShowMobileModal(true)}
+        onRefresh={() => void loadWorkspaceData()}
+      />
 
       <main className="w-full flex-1 space-y-5 px-4 py-4 md:px-6">
         {errorBanner && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-rose-500/40 bg-rose-950/40 px-4 py-2.5 text-xs text-rose-300">
+          <InlineAlert variant="destructive" className="items-center justify-between">
             <span>{errorBanner}</span>
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10"
               onClick={() => {
                 setLoading(true);
                 void loadWorkspaceData();
               }}
-              className="shrink-0 rounded bg-rose-500/20 px-2.5 py-1 text-rose-100 hover:bg-rose-500/30"
             >
               重试
-            </button>
-          </div>
+            </Button>
+          </InlineAlert>
         )}
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-12 text-center text-sm text-slate-300">
-            <RefreshCw className="h-5 w-5 animate-spin text-sky-400" />
-            <span>正在连接本地工作台并加载工作区...</span>
-          </div>
+          <LoadingState label="正在连接本地工作台并加载工作区..." className="p-12" />
         ) : !overview ? (
-          <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-12 text-center">
-            <h2 className="text-base font-semibold text-slate-200">欢迎使用 OpenSpecUI</h2>
-            <p className="mt-2 text-xs text-slate-400">
-              创建一个逻辑工作区，绑定本地仓库、前后端分仓或线上 Git URL，立即统一预览 Specs 与 Git 变更。
-            </p>
-            {!readOnlyMode && (
-              <button
-                type="button"
-                onClick={() => setModalMode('create-workspace')}
-                className="mt-4 rounded-lg bg-sky-600 px-4 py-2 text-xs font-medium text-white hover:bg-sky-500"
-              >
-                创建第一个工作区
-              </button>
-            )}
-          </div>
+          <EmptyState
+            title="欢迎使用 OpenSpecUI"
+            description="创建一个逻辑工作区，绑定本地仓库、前后端分仓或线上 Git URL，立即统一预览 Specs 与 Git 变更。"
+            action={
+              !readOnlyMode ? (
+                <Button onClick={() => setModalMode('create-workspace')}>创建第一个工作区</Button>
+              ) : undefined
+            }
+          />
         ) : mainView === 'openspec' ? (
           <ChangeBoard
             workspace={overview.workspace}
@@ -368,49 +213,19 @@ export function App() {
         />
       )}
 
-      {showMobileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-                <Smartphone className="h-4 w-4 text-sky-400" />
-                <span>在手机 / 局域网打开看板</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowMobileModal(false)}
-                className="text-slate-400 hover:text-slate-200"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-3 text-xs text-slate-300">
-              {readOnlyMode && lanUrls.length > 0 ? (
-                <>
-                  <p>当前服务已在局域网只读模式运行，同 Wi-Fi 下手机浏览器可访问：</p>
-                  <div className="space-y-1.5">
-                    {lanUrls.map((url) => (
-                      <div key={url} className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-sky-300">
-                        {url}
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p>
-                    默认启动仅监听本机 <code className="rounded bg-slate-800 px-1">127.0.0.1</code> 以保护本地写权限。如需手机同局域网查看，请使用以下命令启动（自动锁定为只读模式）：
-                  </p>
-                  <pre className="rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] text-sky-300">
-                    openspecui --host 0.0.0.0
-                  </pre>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+      <MobileAccessDialog open={showMobileModal} onOpenChange={setShowMobileModal} readOnlyMode={readOnlyMode} lanUrls={lanUrls} />
+
+      {overview && (
+        <WorkspaceDeleteDialog
+          open={showDeleteDialog}
+          onOpenChange={setShowDeleteDialog}
+          workspaceName={overview.workspace.name}
+          hasRemote={hasRemoteRepos}
+          onConfirm={(cleanupCache) => void handleDeleteWorkspace(cleanupCache)}
+        />
       )}
     </div>
   );
 }
+
 export default App;

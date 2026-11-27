@@ -1,188 +1,245 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --text-10: 10px;
+  --text-10--line-height: 1rem;
+  --text-11: 11px;
+  --text-11--line-height: 1rem;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
+  --color-foreground-faint: var(--foreground-faint);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-input-border: var(--input-border);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-text: var(--success-text);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-text: var(--warning-text);
+  --color-info: var(--info);
+  --color-info-text: var(--info-text);
+  --color-violet: var(--violet);
+  --color-violet-text: var(--violet-text);
+  --color-indigo: var(--indigo);
+  --color-indigo-text: var(--indigo-text);
+  --color-repo-sky: var(--repo-sky);
+  --color-repo-emerald: var(--repo-emerald);
+  --color-repo-violet: var(--repo-violet);
+  --color-repo-amber: var(--repo-amber);
+  --color-repo-rose: var(--repo-rose);
+  --color-repo-cyan: var(--repo-cyan);
+  --color-diff-added: var(--diff-added);
+  --color-diff-removed: var(--diff-removed);
+  --color-diff-modified: var(--diff-modified);
+  --color-diff-info: var(--diff-info);
+  --color-diff-renamed: var(--diff-renamed);
+  --color-overlay: var(--overlay);
+  --color-overlay-strong: var(--overlay-strong);
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+}
+
+:root {
+  color-scheme: light;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --foreground-secondary: #0f172a;
+  --foreground-muted: #334155;
+  --foreground-subtle: #64748b;
+  --foreground-faint: #64748b;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: oklch(58.8% 0.158 241.966);
+  --primary-hover: oklch(68.5% 0.169 237.323);
+  --primary-foreground: #ffffff;
+  --secondary: #e2e8f0;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #e2e8f0;
+  --accent-foreground: #0f172a;
+  --destructive: oklch(58.6% 0.253 17.585);
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --input: #f1f5f9;
+  --input-border: #cbd5e1;
+  --ring: #0369a1;
+  --success: oklch(59.6% 0.145 163.225);
+  --success-foreground: #ffffff;
+  --success-text: #047857;
+  --warning: oklch(76.9% 0.188 70.08);
+  --warning-foreground: #0f172a;
+  --warning-text: #b45309;
+  --info: oklch(58.8% 0.158 241.966);
+  --info-text: #0369a1;
+  --violet: oklch(60.6% 0.25 292.717);
+  --violet-text: #6d28d9;
+  --indigo: oklch(58.5% 0.233 277.117);
+  --indigo-text: #4338ca;
+  --repo-sky: oklch(74.6% 0.16 232.661);
+  --repo-emerald: oklch(76.5% 0.177 163.223);
+  --repo-violet: oklch(70.2% 0.183 293.541);
+  --repo-amber: oklch(82.8% 0.189 84.429);
+  --repo-rose: oklch(71.2% 0.194 13.428);
+  --repo-cyan: oklch(78.9% 0.154 211.53);
+  --diff-added: #ecfdf5;
+  --diff-removed: #fef2f2;
+  --diff-modified: #fffbeb;
+  --diff-info: #f0f9ff;
+  --diff-renamed: oklch(96.9% 0.016 293.756);
+  --overlay: rgb(0 0 0 / 70%);
+  --overlay-strong: rgb(0 0 0 / 75%);
+  --radius: 0.5rem;
+  --scrollbar-track: #f1f5f9;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(12.9% 0.042 264.695);
+  --foreground: oklch(96.8% 0.007 247.896);
+  --foreground-secondary: oklch(92.9% 0.013 255.508);
+  --foreground-muted: oklch(86.9% 0.022 252.894);
+  --foreground-subtle: oklch(70.4% 0.04 256.788);
+  --foreground-faint: oklch(55.4% 0.046 257.417);
+  --card: oklch(20.8% 0.042 265.755);
+  --card-foreground: oklch(96.8% 0.007 247.896);
+  --popover: oklch(20.8% 0.042 265.755);
+  --popover-foreground: oklch(96.8% 0.007 247.896);
+  --primary: oklch(58.8% 0.158 241.966);
+  --primary-hover: oklch(68.5% 0.169 237.323);
+  --primary-foreground: #ffffff;
+  --secondary: oklch(27.9% 0.041 260.031);
+  --secondary-foreground: oklch(92.9% 0.013 255.508);
+  --muted: oklch(27.9% 0.041 260.031);
+  --muted-foreground: oklch(70.4% 0.04 256.788);
+  --accent: oklch(27.9% 0.041 260.031);
+  --accent-foreground: oklch(96.8% 0.007 247.896);
+  --destructive: oklch(58.6% 0.253 17.585);
+  --destructive-foreground: #ffffff;
+  --border: oklch(27.9% 0.041 260.031);
+  --border-strong: oklch(37.2% 0.044 257.287);
+  --input: oklch(12.9% 0.042 264.695);
+  --input-border: oklch(37.2% 0.044 257.287);
+  --ring: oklch(74.6% 0.16 232.661);
+  --success: oklch(59.6% 0.145 163.225);
+  --success-foreground: #ffffff;
+  --success-text: oklch(76.5% 0.177 163.223);
+  --warning: oklch(76.9% 0.188 70.08);
+  --warning-foreground: #0f172a;
+  --warning-text: oklch(87.9% 0.169 91.605);
+  --info: oklch(58.8% 0.158 241.966);
+  --info-text: oklch(74.6% 0.16 232.661);
+  --violet: oklch(60.6% 0.25 292.717);
+  --violet-text: oklch(81.1% 0.111 293.571);
+  --indigo: oklch(58.5% 0.233 277.117);
+  --indigo-text: oklch(78.5% 0.115 274.713);
+  --repo-sky: oklch(74.6% 0.16 232.661);
+  --repo-emerald: oklch(76.5% 0.177 163.223);
+  --repo-violet: oklch(70.2% 0.183 293.541);
+  --repo-amber: oklch(82.8% 0.189 84.429);
+  --repo-rose: oklch(71.2% 0.194 13.428);
+  --repo-cyan: oklch(78.9% 0.154 211.53);
+  --diff-added: oklch(26.2% 0.051 172.552);
+  --diff-removed: oklch(27.1% 0.105 12.094);
+  --diff-modified: oklch(27.9% 0.077 45.635);
+  --diff-info: oklch(29.3% 0.066 243.157);
+  --diff-renamed: oklch(28.3% 0.141 291.089);
+  --overlay: rgb(0 0 0 / 70%);
+  --overlay-strong: rgb(0 0 0 / 75%);
+  --radius: 0.5rem;
+  --scrollbar-track: #0f172a;
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+}
 
 @layer base {
   html {
-    color-scheme: dark;
-  }
-
-  html.theme-light {
-    color-scheme: light;
+    @apply font-sans;
   }
 
   body {
+    @apply bg-background text-foreground;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
   }
 
-  code, pre {
+  code,
+  pre {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
   }
 }
 
-/* ============================================================================
- * 浅色（白色）主题全覆盖规则
- * 覆盖所有 slate 深色阶与透明度变体、语义 Diff/告警底色、悬停态与滚动条
- * ============================================================================ */
-html.theme-light body,
-html.theme-light .min-h-screen.bg-slate-950 {
-  background-color: #f8fafc !important;
-  color: #0f172a !important;
-}
-
-/* 950 系列：浅灰底面（看板列槽、头部、代码块与内嵌输入区） */
-html.theme-light [class*="bg-slate-950"] {
-  background-color: #f1f5f9 !important;
-}
-
-html.theme-light header[class*="bg-slate-950"] {
-  background-color: rgba(255, 255, 255, 0.94) !important;
-}
-
-/* 900 系列：卡片、弹窗、主面板纯白底 */
-html.theme-light [class*="bg-slate-900"] {
-  background-color: #ffffff !important;
-}
-
-/* 800 / 700 / 600 系列：标签胶囊、次级按钮、进度条底槽 */
-html.theme-light [class*="bg-slate-800"] {
-  background-color: #e2e8f0 !important;
-}
-
-html.theme-light [class*="bg-slate-700"] {
-  background-color: #cbd5e1 !important;
-}
-
-html.theme-light .bg-slate-600 {
-  background-color: #94a3b8 !important;
-}
-
-/* 悬停态背景覆盖，防止浅色模式下悬停变黑 */
-html.theme-light [class*="hover:bg-slate-950"]:hover,
-html.theme-light [class*="hover:bg-slate-900"]:hover {
-  background-color: #f1f5f9 !important;
-}
-
-html.theme-light [class*="hover:bg-slate-800"]:hover,
-html.theme-light [class*="hover:bg-slate-700"]:hover {
-  background-color: #cbd5e1 !important;
-}
-
-/* 边框颜色适配 */
-html.theme-light [class*="border-slate-900"] {
-  border-color: #e2e8f0 !important;
-}
-
-html.theme-light [class*="border-slate-800"],
-html.theme-light [class*="divide-slate-800"] > :not(:first-child) {
-  border-color: #e2e8f0 !important;
-}
-
-html.theme-light [class*="border-slate-700"] {
-  border-color: #cbd5e1 !important;
-}
-
-/* 语义深色背景（Diff / Delta / 警告 / 信息提示条）改为柔和浅底 */
-html.theme-light [class*="bg-rose-950"] {
-  background-color: #fef2f2 !important;
-}
-
-html.theme-light [class*="bg-emerald-950"] {
-  background-color: #ecfdf5 !important;
-}
-
-html.theme-light [class*="bg-amber-950"] {
-  background-color: #fffbeb !important;
-}
-
-html.theme-light [class*="bg-sky-950"] {
-  background-color: #f0f9ff !important;
-}
-
-/* 文字颜色高对比度映射 */
-html.theme-light .text-slate-100,
-html.theme-light .text-slate-200 {
-  color: #0f172a !important;
-}
-
-html.theme-light .text-slate-300 {
-  color: #334155 !important;
-}
-
-html.theme-light .text-slate-400,
-html.theme-light .text-slate-500,
-html.theme-light .text-slate-600 {
-  color: #64748b !important;
-}
-
-html.theme-light .hover\:text-slate-200:hover {
-  color: #0f172a !important;
-}
-
-html.theme-light .text-sky-200,
-html.theme-light .text-sky-300,
-html.theme-light .text-sky-400 {
-  color: #0369a1 !important;
-}
-
-html.theme-light .text-emerald-300,
-html.theme-light .text-emerald-400 {
-  color: #047857 !important;
-}
-
-html.theme-light .text-amber-100,
-html.theme-light .text-amber-200,
-html.theme-light .text-amber-300,
-html.theme-light .text-amber-400 {
-  color: #b45309 !important;
-}
-
-html.theme-light .text-rose-100,
-html.theme-light .text-rose-200,
-html.theme-light .text-rose-300,
-html.theme-light .text-rose-400 {
-  color: #b91c1c !important;
-}
-
-html.theme-light .text-violet-300 {
-  color: #6d28d9 !important;
-}
-
-html.theme-light .text-indigo-300 {
-  color: #4338ca !important;
-}
-
-/* 选中主按钮维持白字清晰显示 */
-html.theme-light .bg-sky-600,
-html.theme-light .bg-emerald-600 {
-  color: #ffffff !important;
-}
-
-/* 滚动条样式（深浅双主题） */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--scrollbar-thumb-hover);
 }
 
-html.theme-light ::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-
-html.theme-light ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-}
-
-html.theme-light ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

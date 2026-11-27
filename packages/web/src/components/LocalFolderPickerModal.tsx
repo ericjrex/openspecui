@@ -6,9 +6,26 @@
 
 import type { DirectoryBrowseResult } from '@openspecui/shared';
 import { ArrowUp, Check, Folder, HardDrive, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { api } from '../api';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useEffect, useRef, useState } from 'react';
+import { api } from '@/api';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils';
 
 interface LocalFolderPickerModalProps {
   initialPath?: string;
@@ -21,17 +38,28 @@ export function LocalFolderPickerModal({
   onSelect,
   onClose,
 }: LocalFolderPickerModalProps) {
-  useEscapeKey(onClose);
   const [data, setData] = useState<DirectoryBrowseResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const returnFocusTarget = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+
+  const handleCloseAutoFocus = (event: Event) => {
+    const target = returnFocusTarget.current;
+    if (target?.isConnected && target !== document.body) {
+      event.preventDefault();
+      target.focus();
+    }
+  };
 
   const navigateTo = async (targetPath?: string) => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await api.browseDirs(targetPath);
-      setData(res);
+      const response = await api.browseDirs(targetPath);
+      setData(response);
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
@@ -44,133 +72,169 @@ export function LocalFolderPickerModal({
   }, [initialPath]);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4">
-      <div className="w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-            <Folder className="h-4 w-4 text-sky-400" />
-            <span>浏览本机文件夹</span>
-          </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-200">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
+        className="flex max-h-[calc(100dvh-2rem)] max-w-xl flex-col gap-0 overflow-hidden bg-card p-0 text-foreground"
+        showCloseButton={false}
+        onCloseAutoFocus={handleCloseAutoFocus}
+      >
+        <DialogHeader className="shrink-0 px-4 py-3 pr-14">
+          <DialogTitle className="flex items-center gap-2">
+            <Folder aria-hidden="true" className="text-info" />
+            浏览本机文件夹
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            点击文件夹名进入下级，点击右侧“选中”直接填入。
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="space-y-3 p-4 text-xs">
-          {/* 盘符快捷入口 */}
+        <DialogClose asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-2 right-2"
+            aria-label="关闭目录选择弹窗"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </DialogClose>
+
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-4 text-xs">
           {data && data.roots.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-slate-500">磁盘：</span>
+              <span className="text-muted-foreground">磁盘：</span>
               {data.roots.map((root) => (
-                <button
+                <Button
                   key={root}
                   type="button"
+                  variant="outline"
+                  size="xs"
                   onClick={() => void navigateTo(root)}
-                  className="flex items-center gap-1 rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-slate-300 hover:border-sky-500 hover:text-sky-300"
+                  className="font-mono"
                 >
-                  <HardDrive className="h-3 w-3" /> {root}
-                </button>
+                  <HardDrive data-icon="inline-start" aria-hidden="true" />
+                  {root}
+                </Button>
               ))}
             </div>
           )}
 
-          {/* 当前路径与返回上一级 */}
-          <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1.5">
-            <button
-              type="button"
-              disabled={!data?.parentPath || loading}
-              onClick={() => data?.parentPath && void navigateTo(data.parentPath)}
-              className="flex items-center gap-1 rounded bg-slate-800 px-2 py-1 text-slate-200 hover:bg-slate-700 disabled:opacity-40"
-            >
-              <ArrowUp className="h-3 w-3" /> 上一级
-            </button>
-            <span className="min-w-0 flex-1 truncate font-mono text-slate-300">
-              {data?.currentPath ?? '本机磁盘列表'}
-            </span>
-          </div>
+          <Field>
+            <FieldLabel htmlFor="folder-picker-current-path" className="sr-only">
+              当前目录
+            </FieldLabel>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!data?.parentPath || loading}
+                onClick={() => data?.parentPath && void navigateTo(data.parentPath)}
+              >
+                <ArrowUp data-icon="inline-start" aria-hidden="true" /> 上一级
+              </Button>
+              <Input
+                id="folder-picker-current-path"
+                readOnly
+                value={data?.currentPath ?? '本机磁盘列表'}
+                className="flex-1 border-border bg-input font-mono text-foreground-secondary"
+              />
+            </div>
+          </Field>
 
           {errorMsg && (
-            <div className="rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-rose-300">
-              {errorMsg}
-            </div>
+            <Alert variant="destructive" className="border-destructive/40 bg-diff-removed">
+              <AlertDescription>{errorMsg}</AlertDescription>
+            </Alert>
           )}
 
-          {/* 目录内容列表 */}
-          <div className="h-64 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950 p-1.5">
+          <ScrollArea className="h-64 shrink-0 rounded-lg border border-border bg-input p-1.5">
             {loading ? (
-              <div className="p-8 text-center text-slate-500">正在读取目录...</div>
+              <Empty className="p-6">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Spinner aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle>正在读取目录...</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : !data || data.entries.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">当前目录下没有子文件夹</div>
+              <Empty className="border border-dashed border-border p-6">
+                <EmptyHeader>
+                  <EmptyTitle>当前目录下没有子文件夹</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
-              data.entries.map((entry) => (
-                <div
-                  key={entry.path}
-                  className="flex items-center justify-between rounded-md px-2.5 py-1.5 hover:bg-slate-900"
-                >
-                  <button
-                    type="button"
-                    onClick={() => void navigateTo(entry.path)}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              <div className="flex flex-col gap-1">
+                {data.entries.map((entry) => (
+                  <div
+                    key={entry.path}
+                    className="flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 hover:bg-muted"
                   >
-                    <Folder
-                      className={`h-4 w-4 shrink-0 ${
-                        entry.hasOpenSpec ? 'text-emerald-400' : 'text-sky-400'
-                      }`}
-                    />
-                    <span className="truncate text-slate-200">{entry.name}</span>
-                    {entry.hasOpenSpec && (
-                      <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">
-                        OpenSpec
-                      </span>
-                    )}
-                    {entry.hasGit && (
-                      <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] text-sky-300">
-                        Git
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelect(entry.path);
-                      onClose();
-                    }}
-                    className="ml-2 shrink-0 rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300 hover:border-sky-500 hover:bg-sky-600 hover:text-white"
-                  >
-                    选中
-                  </button>
-                </div>
-              ))
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void navigateTo(entry.path)}
+                      className="min-w-0 flex-1 justify-start px-0 text-left font-normal"
+                    >
+                      <Folder
+                        aria-hidden="true"
+                        className={cn('shrink-0', entry.hasOpenSpec ? 'text-success' : 'text-info')}
+                      />
+                      <span className="truncate text-foreground">{entry.name}</span>
+                      {entry.hasOpenSpec && (
+                        <Badge variant="secondary" className="text-success">OpenSpec</Badge>
+                      )}
+                      {entry.hasGit && (
+                        <Badge variant="secondary" className="text-info">Git</Badge>
+                      )}
+                    </Button>
+                    <DialogClose asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() => onSelect(entry.path)}
+                      >
+                        选中
+                      </Button>
+                    </DialogClose>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
+          </ScrollArea>
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-800 px-4 py-3 text-xs">
-          <span className="text-slate-500">提示：点击文件夹名进入下级，点击右侧“选中”直接填入</span>
+        <DialogFooter className="mx-0 mb-0 shrink-0 px-4 py-3 sm:justify-between">
+          <span className="text-11 text-muted-foreground">
+            提示：点击文件夹名进入下级，点击右侧“选中”直接填入
+          </span>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              disabled={!data?.currentPath}
-              onClick={() => {
-                if (data?.currentPath) {
-                  onSelect(data.currentPath);
-                  onClose();
-                }
-              }}
-              className="flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 font-medium text-white hover:bg-sky-500 disabled:opacity-40"
-            >
-              <Check className="h-3.5 w-3.5" /> 选择当前目录
-            </button>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" size="sm">取消</Button>
+            </DialogClose>
+            <DialogClose asChild>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!data?.currentPath}
+                onClick={() => {
+                  if (data?.currentPath) onSelect(data.currentPath);
+                }}
+              >
+                <Check data-icon="inline-start" aria-hidden="true" /> 选择当前目录
+              </Button>
+            </DialogClose>
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
